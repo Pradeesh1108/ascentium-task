@@ -124,6 +124,15 @@ curl -X POST http://127.0.0.1:8000/messages \
 }
 ```
 
+### Send the practice dataset batch:
+You can stream the 25 practice messages using the included sender script:
+```bash
+cd backend
+uv run python scripts/send_messages.py
+```
+This automatically tests acceptance, rejection of empty messages (`T-1012`), and duplicate delivery handling (`T-1007`).
+
+
 ---
 
 ## 8. REST API Endpoints
