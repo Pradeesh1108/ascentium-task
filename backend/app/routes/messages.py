@@ -4,6 +4,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Response
 
+from app.config import PROJECT_DIR
 from app.database import get_connection
 from app.schemas import (
     CheckpointInfo,
@@ -20,8 +21,23 @@ from app.services.retry import manual_retry_all_failed, manual_retry_message
 router = APIRouter(tags=["messages"])
 
 
+@router.get(
+    "/practice-messages",
+    summary="Get candidate practice messages dataset",
+)
+def get_practice_messages():
+    practice_path = PROJECT_DIR / "for_candidates" / "practice_messages.json"
+    if not practice_path.exists():
+        practice_path = PROJECT_DIR / "practice_messages.json"
+    if not practice_path.exists():
+        raise HTTPException(status_code=404, detail="practice_messages.json not found")
+    with open(practice_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
 @router.post(
     "/messages",
+
     response_model=MessageIngestResponse,
     summary="Ingest a customer message",
     status_code=202,

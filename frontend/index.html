@@ -100,8 +100,10 @@
     const liveApi = {
       health: () => J('/health'), stats: () => J('/stats'), list: () => J('/messages'), get: i => J('/messages/' + E(i)), retry: i => J('/messages/' + E(i) + '/retry', { method: 'POST' }), retryAll: () => J('/messages/retry-failed', { method: 'POST' }),
       submit: b => J('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }),
-      export: async () => { const r = await fetch(BASE + '/results/export'); if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob() }
+      export: async () => { const r = await fetch(BASE + '/results/export'); if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob() },
+      practice: () => J('/practice-messages')
     };
+
     const normList = x => Array.isArray(x) ? x : (x && (x.items || x.messages)) || [];
     const hs = x => { const o = typeof x === 'string' ? { status: x } : x || {}; const s = String(o.status || o.state || '').toLowerCase(); return { status: ['ok', 'up', 'healthy', 'connected'].includes(s) ? 'healthy' : ['degraded', 'slow'].includes(s) ? 'degraded' : ['down', 'error', 'unavailable', 'failed'].includes(s) ? 'unavailable' : 'unknown', detail: o.detail || o.message || o.error || null, at: o.checked_at || o.last_checked || null } };
     const normHealth = x => x ? { llm: hs(x.llm ?? x.llm_service), storage: hs(x.storage ?? x.database ?? x.db) } : null;
@@ -134,7 +136,18 @@
     };
     /* ===== Helpers ===== */
     const ST = { completed: ['bg-sage', 'Completed'], failed: ['bg-terra', 'Failed'], rejected: ['bg-terra', 'Rejected'], processing: ['bg-ochre', 'Processing'], pending_retry: ['bg-ochre', 'Waiting to retry'], received: ['bg-mute', 'Received'] };
-    const Dot = ({ s }) => { const t = ST[s] || ['bg-mute', s || 'Unknown']; return h('span', { className: 'inline-flex items-center gap-1.5 text-xs whitespace-nowrap' }, h('span', { className: 'h-1.5 w-1.5 rounded-full ' + t[0] }), t[1]) };
+    const Dot = ({ s }) => {
+      const t = ST[s] || ['bg-mute', s || 'Unknown'];
+      const isP = s === 'processing';
+      return h('span', { className: 'inline-flex items-center gap-1.5 text-xs whitespace-nowrap' },
+        h('span', { className: 'relative flex h-2 w-2' },
+          isP && h('span', { className: 'animate-ping absolute inline-flex h-full w-full rounded-full bg-ochre opacity-75' }),
+          h('span', { className: 'relative inline-flex rounded-full h-2 w-2 ' + t[0] })
+        ),
+        t[1]
+      );
+    };
+
     const parseUtcDate = t => {
       if (!t) return null;
       if (t instanceof Date) return t;
@@ -188,7 +201,7 @@
       return { ...s, load }
     }
     /* ===== Components ===== */
-    function Header({ d, mode, setMode, llmDown, setLlmDown, onExport, exporting, onRefresh }) {
+    function Header({ d, onExport, exporting, onRefresh, onStreamPractice, streamingPractice }) {
       const [now, setNow] = useState(new Date()); useEffect(() => { const t = setInterval(() => setNow(new Date()), 1e3); return () => clearInterval(t) }, []);
       const conn = !d.sawData ? (d.fails ? ['bg-terra', 'Backend unavailable'] : ['bg-mute', 'Connecting']) : d.allFail && d.fails >= 3 ? ['bg-terra', 'Backend unavailable'] : d.fails ? ['bg-ochre', 'Stale: latest request failed'] : ['bg-sage', 'Connected'];
       return h('header', { className: 'flex flex-wrap items-end justify-between gap-4 border-b border-line pb-5' },
@@ -198,10 +211,11 @@
         h('div', { className: 'flex flex-wrap items-center gap-3 text-xs' },
           h('div', { className: 'text-right' }, h('div', { className: 'font-mono tn' }, now.toLocaleTimeString()), h('div', { className: 'flex items-center justify-end gap-1.5 text-mute', role: 'status' }, h('span', { className: 'h-1.5 w-1.5 rounded-full ' + conn[0] }), conn[1])),
           h('div', { className: 'inline-flex items-center gap-1.5 rounded-md border border-line bg-surf px-3 py-1.5 font-medium' }, h('span', { className: 'h-2 w-2 rounded-full bg-sage' }), 'Live Realtime'),
+          h(Btn, { kind: 'solid', onClick: onStreamPractice, disabled: streamingPractice || d.busy, className: 'border-ochre bg-ochre text-surf hover:bg-ochre/90 font-medium' }, streamingPractice ? 'Streaming Batch…' : 'Stream Practice Batch (25)'),
           h(Btn, { onClick: onRefresh, disabled: d.busy, 'aria-label': 'Refresh now' }, d.busy ? 'Refreshing…' : 'Refresh'),
           h(Btn, { kind: 'solid', onClick: onExport, disabled: exporting }, exporting ? 'Exporting…' : 'Export results')))
-
     }
+
     const HC = { healthy: ['bg-sage', 'Healthy'], degraded: ['bg-ochre', 'Degraded'], unavailable: ['bg-terra', 'Unavailable'], unknown: ['bg-mute', 'Unknown'] };
     function Health({ d }) {
       const rec = useRef(false), [ok, setOk] = useState(false), H = d.health, bad = H && (H.llm.status === 'unavailable' || H.storage.status === 'unavailable');
@@ -224,14 +238,27 @@
         h('div', { className: 'flex flex-wrap gap-x-8 gap-y-1 px-1 text-sm' }, [['llm_calls', 'Total LLM calls', 'Every call to the extraction and classification stages.'], ['repeated_llm_calls', 'Repeated LLM calls', 'Calls beyond the two expected per message, caused by retries.']].map(([k, l, t]) => h('div', { key: k, title: t, className: 'flex items-baseline gap-2' }, h('span', { className: 'text-mute' }, l), h('span', { className: 'font-mono tn' }, num(S && S[k]))))))
     }
     const STG = [['Received', 'Message arrives'], ['Validated', 'Validated and persisted'], ['Extraction', 'LLM call 1'], ['Checkpoint', 'Extraction saved'], ['Classification', 'LLM call 2'], ['Checkpoint', 'Classification saved'], ['Persisted', 'Final result saved'], ['Completed', 'Done']];
-    const SC = { done: 'bg-sage border-sage text-surf', active: 'bg-ochre border-ochre text-surf', fail: 'bg-terra border-terra text-surf', wait: 'border-ochre text-ochre bg-surf', todo: 'border-line text-mute bg-surf' };
+    const SC = {
+      done: 'bg-sage border-sage text-surf shadow-sm shadow-sage/30',
+      active: 'bg-ochre border-ochre text-surf ring-4 ring-amber-400 ring-offset-2 ring-offset-surf animate-pulse scale-110 shadow-lg shadow-ochre/50',
+      fail: 'bg-terra border-terra text-surf ring-2 ring-terra/30',
+      wait: 'border-ochre text-ochre bg-surf ring-2 ring-ochre/30 animate-pulse',
+      todo: 'border-line text-mute bg-surf'
+    };
     function Pipeline({ sel, failed }) {
       const st = stageStates(sel);
       return h(Card, { className: 'p-4' }, h('div', { className: 'flex flex-wrap items-baseline justify-between gap-2' }, h('h2', { className: 'font-serif text-xl' }, 'Processing pipeline'), h('p', { className: 'text-xs text-mute' }, sel ? ['Showing ', h('span', { key: 1, className: 'font-mono' }, sel.message_id)] : 'Select a message to see where it is.')),
-        h('ol', { className: 'mt-4 grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-4 lg:grid-cols-8' }, STG.map(([a, b], i) => h('li', { key: i, className: 'relative lg:after:absolute lg:after:left-9 lg:after:top-3 lg:after:h-px lg:after:bg-line lg:after:right-[-0.75rem] last:after:hidden' },
-          h('span', { className: 'relative z-10 flex h-6 w-6 items-center justify-center rounded-full border font-mono text-[11px] ' + SC[st[i]] }, st[i] === 'done' ? '✓' : st[i] === 'fail' ? '!' : i + 1),
-          h('div', { className: 'mt-2 text-sm font-medium leading-tight' }, a), h('div', { className: 'text-xs text-mute' }, b), st[i] === 'active' && h('div', { className: 'text-xs text-ochre' }, 'In progress'), st[i] === 'wait' && h('div', { className: 'text-xs text-ochre' }, 'Waiting to retry'), st[i] === 'fail' && h('div', { className: 'text-xs text-terra' }, sel.status === 'rejected' ? 'Rejected here' : 'Failed here')))),
+        h('ol', { className: 'mt-4 grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-4 lg:grid-cols-8' }, STG.map(([a, b], i) => h('li', { key: i, className: 'relative lg:after:absolute lg:after:left-9 lg:after:top-3.5 lg:after:h-px lg:after:bg-line lg:after:right-[-0.75rem] last:after:hidden' },
+          h('span', { className: cx('relative z-10 flex h-7 w-7 items-center justify-center rounded-full border font-mono text-xs transition-all duration-300', SC[st[i]]) },
+            st[i] === 'done' ? '✓' : st[i] === 'fail' ? '!' : st[i] === 'active' ? h('span', { className: 'animate-spin inline-block h-3.5 w-3.5 border-2 border-surf border-t-transparent rounded-full' }) : i + 1),
+          h('div', { className: cx('mt-2 text-sm font-medium leading-tight', st[i] === 'active' && 'text-ochre font-semibold') }, a),
+          h('div', { className: 'text-xs text-mute' }, b),
+          st[i] === 'active' && h('div', { className: 'text-xs text-ochre font-semibold flex items-center gap-1 mt-0.5 animate-pulse' }, h('span', { className: 'inline-block h-1.5 w-1.5 rounded-full bg-ochre animate-ping' }), 'In progress…'),
+          st[i] === 'wait' && h('div', { className: 'text-xs text-ochre' }, 'Waiting to retry'),
+          st[i] === 'fail' && h('div', { className: 'text-xs text-terra' }, sel && sel.status === 'rejected' ? 'Rejected here' : 'Failed here'),
+          st[i] === 'done' && i === 7 && h('div', { className: 'text-xs text-sage font-medium mt-0.5' }, 'Complete')))),
         h('div', { className: 'mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3 text-xs text-mute' },
+
           h('p', null, 'Successful stages are saved. If a later stage fails, processing resumes from the last saved checkpoint.'),
           h('p', null, 'Other states: rejected at validation · waiting to retry · failed after the retry limit · ', h('span', { className: 'font-mono tn text-ink' }, num(failed)), ' failed awaiting action')))
     }
@@ -310,12 +337,10 @@
     }
     /* ===== App ===== */
     function App() {
-      const [mode, setMode] = useState('live'), [, bump] = useState(0), api = liveApi;
-      const d = useDash(api), [fl, setFl] = useState({ q: '', status: '', cat: '', urg: '' }), [selId, setSel] = useState(null), [selData, setSelData] = useState(null), [pending, setPend] = useState({}), [note, setNote] = useState(null), [exporting, setExp] = useState(false), [tick, setTick] = useState(0), [llmDown, setLlm] = useState(false);
-      useEffect(() => { setSel(null); setSelData(null); D.llmDown = false; setLlm(false) }, [mode]);
+      const api = liveApi;
+      const d = useDash(api), [fl, setFl] = useState({ q: '', status: '', cat: '', urg: '' }), [selId, setSel] = useState(null), [selData, setSelData] = useState(null), [pending, setPend] = useState({}), [note, setNote] = useState(null), [exporting, setExp] = useState(false), [tick, setTick] = useState(0), [streamingPractice, setStreamingPractice] = useState(false);
       useEffect(() => { if (selId) setTick(t => t + 1) }, [d.lastOk]);
       useEffect(() => { if (!note) return; const t = setTimeout(() => setNote(null), 6e3); return () => clearTimeout(t) }, [note]);
-      const setDown = x => { D.llmDown = x; setLlm(x); d.load() };
       const run = async (key, fn, ok) => {
         if (pending[key]) return; setPend(p => ({ ...p, [key]: 1 }));
         try { const r = await fn(); if (r && (r.ok === false || r.eligible === false)) setNote({ k: 'warn', t: r.reason || r.message || 'Not eligible for retry.' }); else setNote({ k: 'ok', t: (r && r.message) || ok }) } catch (e) { setNote({ k: 'err', t: 'Request failed: ' + e.message }) }
@@ -323,10 +348,31 @@
       };
       const onRetry = id => run('r:' + id, () => api.retry(id), 'Retry accepted for ' + id), onRetryAll = () => run('all', () => api.retryAll(), 'Retry accepted for failed messages');
       const onExport = async () => { setExp(true); try { const b = await api.export(), u = URL.createObjectURL(b), a = document.createElement('a'); a.href = u; a.download = 'results.json'; a.click(); URL.revokeObjectURL(u); setNote({ k: 'ok', t: 'Export downloaded from the backend.' }) } catch (e) { setNote({ k: 'err', t: 'Export failed: ' + e.message }) } setExp(false) };
-      const sel = selData && selData.message_id === selId ? selData : (d.msgs || []).find(m => m.message_id === selId) || null;
+      const onStreamPractice = async () => {
+        setStreamingPractice(true);
+        try {
+          const list = await api.practice();
+          for (let i = 0; i < list.length; i++) {
+            const msg = list[i];
+            setNote({ k: 'ok', t: `[${i + 1}/${list.length}] Submitting ${msg.message_id}…` });
+            await api.submit(msg);
+            d.load();
+            await sleep(1000);
+          }
+          setNote({ k: 'ok', t: 'All 25 practice messages submitted! Watch them process in the pipeline.' });
+        } catch (e) {
+          setNote({ k: 'err', t: 'Streaming failed: ' + e.message });
+        } finally {
+          setStreamingPractice(false);
+          d.load();
+        }
+      };
+      const activeMsg = (d.msgs || []).find(m => m.status === 'processing') || (d.msgs || []).find(m => m.status === 'pending') || (d.msgs || [])[0];
+      const sel = (selData && selData.message_id === selId ? selData : (d.msgs || []).find(m => m.message_id === selId)) || (selId ? null : activeMsg);
       const conn = !d.sawData ? 'Connecting' : d.fails ? 'Stale' : 'Connected';
       return h('div', { className: 'mx-auto max-w-[88rem] space-y-5 px-4 py-6 sm:px-8' },
-        h(Header, { d, mode, setMode, llmDown, setLlmDown: setDown, onExport, exporting, onRefresh: d.load }),
+        h(Header, { d, onExport, exporting, onRefresh: d.load, onStreamPractice, streamingPractice }),
+
 
         h(Health, { d }), h(Metrics, { d }), h(Pipeline, { sel, failed: d.stats && d.stats.failed }),
         h(Explorer, { msgs: d.msgs, selId, onSelect: setSel, fl, setFl, loaded: d.sawData || d.fails > 0 }),

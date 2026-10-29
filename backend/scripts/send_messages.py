@@ -2,10 +2,11 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import time
 import httpx
 
 
-def send_messages(api_url: str, file_path: Path) -> None:
+def send_messages(api_url: str, file_path: Path, delay: float = 1.0) -> None:
     if not file_path.exists():
         print(f"Error: File not found: {file_path}", file=sys.stderr)
         sys.exit(1)
@@ -14,7 +15,7 @@ def send_messages(api_url: str, file_path: Path) -> None:
         messages = json.load(f)
 
     print(f"Loaded {len(messages)} messages from {file_path}")
-    print(f"Posting to: {api_url}/messages\n")
+    print(f"Posting to: {api_url}/messages with {delay}s delay between requests\n")
 
     accepted = 0
     duplicates = 0
@@ -45,6 +46,10 @@ def send_messages(api_url: str, file_path: Path) -> None:
                 errors += 1
                 print(f"[{idx:02d}] {mid} -> EXCEPTION: {e}")
 
+            if delay > 0 and idx < len(messages):
+                time.sleep(delay)
+
+
     print("\n--- Summary ---")
     print(f"Total processed: {len(messages)}")
     print(f"Accepted:        {accepted}")
@@ -65,8 +70,15 @@ def main():
         default=str(Path(__file__).resolve().parents[2] / "for_candidates" / "practice_messages.json"),
         help="Path to JSON messages file",
     )
+    parser.add_argument(
+        "--delay",
+        type=float,
+        default=1.0,
+        help="Delay in seconds between sending messages (default: 1.0)",
+    )
     args = parser.parse_args()
-    send_messages(args.url.rstrip("/"), Path(args.file))
+    send_messages(args.url.rstrip("/"), Path(args.file), delay=args.delay)
+
 
 
 if __name__ == "__main__":
