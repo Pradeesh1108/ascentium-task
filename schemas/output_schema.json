@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Processed message result",
+  "type": "object",
+  "required": [
+    "message_id",
+    "status",
+    "category",
+    "order_id",
+    "product",
+    "urgency",
+    "requested_action",
+    "attempts",
+    "failure_reason"
+  ],
+  "additionalProperties": true,
+  "properties": {
+    "message_id": {
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "failed",
+        "rejected"
+      ],
+      "description": "completed = classified and extracted; failed = gave up after 3 attempts; rejected = invalid input (e.g. empty). You may use additional in-progress statuses internally."
+    },
+    "category": {
+      "enum": [
+        "Billing",
+        "Technical issue",
+        "Account access",
+        "Refund",
+        "Other",
+        null
+      ]
+    },
+    "order_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Format ORD- followed by 5 digits, or null if not mentioned."
+    },
+    "product": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Product name as mentioned by the customer, or null."
+    },
+    "urgency": {
+      "enum": [
+        "Low",
+        "Medium",
+        "High",
+        null
+      ]
+    },
+    "requested_action": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Short description of what the customer wants, or null if nothing is asked."
+    },
+    "attempts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "failure_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  }
+}
