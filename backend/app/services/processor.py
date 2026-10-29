@@ -8,8 +8,23 @@ from app.schemas import ClassificationResult, ExtractionResult
 from app.services.classification import run_classification_stage
 from app.services.extraction import run_extraction_stage
 from app.services.llm_client import LLMClient
+from app.services.retry import handle_processing_failure
 
 logger = logging.getLogger(__name__)
+
+
+def process_claimed_job(
+    message_id: str,
+    client: Optional[LLMClient] = None,
+) -> bool:
+    """Processes a claimed job, handling failures via retry backoff or marking as failed."""
+    try:
+        return process_message_stages(message_id, client=client)
+    except Exception as exc:
+        logger.warning(f"Failure during processing of message {message_id}: {exc}")
+        handle_processing_failure(message_id, str(exc))
+        return False
+
 
 
 def get_checkpoints_for_message(message_id: str) -> Dict[str, Tuple[str, Optional[Dict[str, Any]]]]:

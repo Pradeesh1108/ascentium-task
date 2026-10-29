@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="utf-8">
+  <title>Ticket Desk</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600&family=DM+Serif+Display&family=IBM+Plex+Mono:wght@400;500&display=swap"
+    rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script>tailwind.config = { theme: { extend: { colors: { canvas: 'var(--canvas)', surf: 'var(--surf)', ink: 'var(--ink)', mute: 'var(--mute)', line: 'var(--line)', sage: 'var(--sage)', sagebg: 'var(--sagebg)', ochre: 'var(--ochre)', ochrebg: 'var(--ochrebg)', terra: 'var(--terra)', terrabg: 'var(--terrabg)' }, fontFamily: { serif: ['"DM Serif Display"', 'Georgia', 'serif'], sans: ['"DM Sans"', 'system-ui', 'sans-serif'], mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace'] } } } }</script>
+  <style>
+    :root {
+      --canvas: #F6F5F0;
+      --surf: #FFFFFF;
+      --ink: #20231F;
+      --mute: #777A72;
+      --line: #E6E4DC;
+      --sage: #71866F;
+      --sagebg: #EAF0E7;
+      --ochre: #B68A4B;
+      --ochrebg: #F5EEDF;
+      --terra: #B66556;
+      --terrabg: #F5E9E5;
+      color-scheme: light;
+      box-sizing: border-box;
+      padding-top: env(safe-area-inset-top, 0px);
+      padding-bottom: env(safe-area-inset-bottom, 0px)
+    }
+
+    @media(prefers-color-scheme:dark) {
+      :root:not([data-theme="light"]) {
+        --canvas: #1A1B18;
+        --surf: #232420;
+        --ink: #ECEAE2;
+        --mute: #A3A69C;
+        --line: #35362F;
+        --sage: #9DB39B;
+        --sagebg: #26302A;
+        --ochre: #D2A965;
+        --ochrebg: #33291A;
+        --terra: #D98B7C;
+        --terrabg: #3A2622;
+        color-scheme: dark
+      }
+    }
+
+    :root[data-theme="dark"] {
+      --canvas: #1A1B18;
+      --surf: #232420;
+      --ink: #ECEAE2;
+      --mute: #A3A69C;
+      --line: #35362F;
+      --sage: #9DB39B;
+      --sagebg: #26302A;
+      --ochre: #D2A965;
+      --ochrebg: #33291A;
+      --terra: #D98B7C;
+      --terrabg: #3A2622;
+      color-scheme: dark
+    }
+
+    body {
+      background: var(--canvas);
+      color: var(--ink);
+      font-family: 'DM Sans', system-ui, sans-serif
+    }
+
+    .tn {
+      font-variant-numeric: tabular-nums
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--ink);
+      outline-offset: 2px
+    }
+
+    @media(prefers-reduced-motion:reduce) {
+      * {
+        transition: none !important;
+        animation: none !important
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+  <script>
+    const { useState, useEffect, useRef, useCallback, useMemo } = React, h = React.createElement;
+    const cx = (...a) => a.filter(Boolean).join(' ');
+    /* ===== API client (live mode). BASE = import.meta.env.VITE_API_URL in the Vite port. Response shapes are ASSUMED: adjust the normalize* fns below. ===== */
+    const BASE = 'http://localhost:8000';
+    const J = async (p, o) => { const r = await fetch(BASE + p, o); let b = null; try { b = await r.json() } catch (e) { } if (!r.ok) throw new Error((b && (b.detail || b.message)) || 'HTTP ' + r.status); return b };
+    const E = encodeURIComponent;
+    const liveApi = {
+      health: () => J('/health'), stats: () => J('/stats'), list: () => J('/messages'), get: i => J('/messages/' + E(i)), retry: i => J('/messages/' + E(i) + '/retry', { method: 'POST' }), retryAll: () => J('/messages/retry-failed', { method: 'POST' }),
+      submit: b => J('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }),
+      export: async () => { const r = await fetch(BASE + '/results/export'); if (!r.ok) throw new Error('HTTP ' + r.status); return r.blob() }
+    };
+    const normList = x => Array.isArray(x) ? x : (x && (x.items || x.messages)) || [];
+    const hs = x => { const o = typeof x === 'string' ? { status: x } : x || {}; const s = String(o.status || o.state || '').toLowerCase(); return { status: ['ok', 'up', 'healthy', 'connected'].includes(s) ? 'healthy' : ['degraded', 'slow'].includes(s) ? 'degraded' : ['down', 'error', 'unavailable', 'failed'].includes(s) ? 'unavailable' : 'unknown', detail: o.detail || o.message || o.error || null, at: o.checked_at || o.last_checked || null } };
+    const normHealth = x => x ? { llm: hs(x.llm ?? x.llm_service), storage: hs(x.storage ?? x.database ?? x.db) } : null;
+    const normStats = s => s ? { received: s.received, in_progress: s.in_progress, completed: s.completed, failed: s.failed, rejected: s.rejected, duplicates_ignored: s.duplicates_ignored ?? s.duplicates, llm_calls: s.llm_calls ?? s.total_llm_calls, repeated_llm_calls: s.repeated_llm_calls } : null;
+    /* ===== Demo backend: clearly labelled sample data, never shown in Live mode ===== */
+    const ago = m => new Date(Date.now() - m * 6e4).toISOString();
+    const mk = (id, text, o) => ({ message_id: id, text, status: 'received', category: null, order_id: null, product: null, urgency: null, requested_action: null, attempts: 0, failure_reason: null, created_at: ago(30), updated_at: ago(5), extraction: { status: 'pending' }, classification: { status: 'pending' }, calls: 0, ...o });
+    const done = (r) => ({ status: 'done', result: r });
+    const D = {
+      dup: 2, llmDown: false, msgs: [
+        mk('demo-1001', 'Order 48213 arrived with a cracked screen on the Aero X2 tablet. Please ship a replacement.', { status: 'completed', category: 'Damaged item', order_id: '48213', product: 'Aero X2 tablet', urgency: 'high', requested_action: 'Send replacement', attempts: 1, calls: 2, created_at: ago(42), updated_at: ago(40), extraction: done({ order_id: '48213', product: 'Aero X2 tablet' }), classification: done({ category: 'Damaged item', urgency: 'high', requested_action: 'Send replacement' }) }),
+        mk('demo-1002', 'Where is my parcel? Order 77120, the Linen throw. It was due last week.', { status: 'completed', category: 'Delivery delay', order_id: '77120', product: 'Linen throw', urgency: 'medium', requested_action: 'Track shipment', attempts: 1, calls: 2, created_at: ago(38), updated_at: ago(36), extraction: done({ order_id: '77120', product: 'Linen throw' }), classification: done({ category: 'Delivery delay', urgency: 'medium', requested_action: 'Track shipment' }) }),
+        mk('demo-1003', 'I was charged twice for order 55871 (Ceramic pour-over set). Refund the duplicate please.', { status: 'failed', category: null, order_id: '55871', product: 'Ceramic pour-over set', attempts: 3, calls: 5, failure_reason: 'Classification: LLM API timeout after 30s (retry limit reached)', created_at: ago(25), updated_at: ago(12), extraction: done({ order_id: '55871', product: 'Ceramic pour-over set' }), classification: { status: 'failed' } }),
+        mk('demo-1004', 'Can I change the delivery address on order 90412? Moving flats on Friday.', { status: 'pending_retry', order_id: '90412', attempts: 1, calls: 3, failure_reason: 'Classification: 429 rate limited', created_at: ago(9), updated_at: ago(2), extraction: done({ order_id: '90412', product: null }), classification: { status: 'pending' } }),
+        mk('demo-1005', '', { status: 'rejected', failure_reason: 'Validation: message text is empty', created_at: ago(20), updated_at: ago(20) }),
+        mk('demo-1006', 'My Orbit kettle will not switch on. Order 31877. Is it under warranty?', { status: 'received', created_at: ago(1), updated_at: ago(1) })]
+    };
+    const sleep = ms => new Promise(r => setTimeout(r, ms)), cl = x => JSON.parse(JSON.stringify(x));
+    setInterval(() => {
+      if (D.llmDown) return; const m = D.msgs.find(x => ['received', 'pending_retry', 'processing'].includes(x.status)); if (!m) return;
+      if (m.status === 'processing') { Object.assign(m, { status: 'completed', category: 'Warranty', urgency: 'low', requested_action: 'Explain warranty terms', classification: done({ category: 'Warranty', urgency: 'low', requested_action: 'Explain warranty terms' }) }); m.calls += 1 }
+      else { m.status = 'processing'; if (m.extraction.status !== 'done') { m.order_id = '31877'; m.product = 'Orbit kettle'; m.extraction = done({ order_id: '31877', product: 'Orbit kettle' }); m.calls += 1 } }
+      m.attempts = Math.max(1, m.attempts); m.updated_at = ago(0)
+    }, 4000);
+    const demoApi = {
+      async health() { await sleep(120); return { llm: { status: D.llmDown ? 'unavailable' : 'healthy', detail: D.llmDown ? 'Simulated: upstream API not responding' : null }, storage: { status: 'healthy' } } },
+      async stats() { await sleep(120); const c = s => D.msgs.filter(m => s.includes(m.status)).length; return { received: D.msgs.length, in_progress: c(['received', 'processing', 'pending_retry']), completed: c(['completed']), failed: c(['failed']), rejected: c(['rejected']), duplicates_ignored: D.dup, llm_calls: D.msgs.reduce((a, m) => a + m.calls, 0), repeated_llm_calls: D.msgs.reduce((a, m) => a + Math.max(0, m.calls - 2), 0) } },
+      async list() { await sleep(120); return cl(D.msgs) },
+      async get(i) { await sleep(80); const m = D.msgs.find(x => x.message_id === i); if (!m) throw new Error('Message not found'); return cl(m) },
+      async retry(i) { await sleep(400); const m = D.msgs.find(x => x.message_id === i); if (!m) throw new Error('Message not found'); if (m.status !== 'failed') return { ok: false, reason: 'Not eligible: status is ' + m.status + ', only failed messages can be retried.' }; m.status = 'pending_retry'; m.updated_at = ago(0); return { ok: true, message: 'Retry scheduled for ' + i } },
+      async retryAll() { await sleep(500); const f = D.msgs.filter(m => m.status === 'failed'); f.forEach(m => { m.status = 'pending_retry'; m.updated_at = ago(0) }); return { ok: true, message: f.length + ' failed message(s) scheduled for retry' } },
+      async submit(b) { await sleep(300); if (D.msgs.some(m => m.message_id === b.message_id)) { D.dup++; return { status: 'duplicate', message: 'Duplicate delivery ignored; the original record is unchanged.' } } D.msgs.push(mk(b.message_id, b.text, { created_at: ago(0), updated_at: ago(0) })); return { status: 'accepted', message: 'Message accepted and persisted.' } },
+      async export() { await sleep(300); return new Blob([JSON.stringify(D.msgs.filter(m => m.status === 'completed').map(m => ({ message_id: m.message_id, category: m.category, order_id: m.order_id, product: m.product, urgency: m.urgency, requested_action: m.requested_action })), null, 2)], { type: 'application/json' }) }
+    };
+    /* ===== Helpers ===== */
+    const ST = { completed: ['bg-sage', 'Completed'], failed: ['bg-terra', 'Failed'], rejected: ['bg-terra', 'Rejected'], processing: ['bg-ochre', 'Processing'], pending_retry: ['bg-ochre', 'Waiting to retry'], received: ['bg-mute', 'Received'] };
+    const Dot = ({ s }) => { const t = ST[s] || ['bg-mute', s || 'Unknown']; return h('span', { className: 'inline-flex items-center gap-1.5 text-xs whitespace-nowrap' }, h('span', { className: 'h-1.5 w-1.5 rounded-full ' + t[0] }), t[1]) };
+    const fmt = t => t ? new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'medium' }) : 'No timestamp';
+    const rel = t => { if (!t) return '—'; const s = (Date.now() - new Date(t)) / 1e3; return s < 60 ? 'just now' : s < 3600 ? Math.floor(s / 60) + 'm ago' : s < 86400 ? Math.floor(s / 3600) + 'h ago' : new Date(t).toLocaleDateString() };
+    const Time = ({ t }) => h('time', { title: fmt(t), dateTime: t || undefined, className: 'font-mono text-xs text-mute' }, rel(t));
+    const v = x => x == null || x === '' ? '—' : x;
+    const num = x => x == null || typeof x !== 'number' ? '—' : x.toLocaleString();
+    const Btn = ({ kind, className, ...p }) => h('button', { ...p, className: cx('inline-flex items-center justify-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed', kind === 'solid' ? 'border-ink bg-ink text-canvas hover:opacity-90' : kind === 'danger' ? 'border-terra text-terra hover:bg-terrabg' : 'border-line bg-surf hover:border-mute', className) });
+    const Card = ({ className, children }) => h('section', { className: cx('rounded-lg border border-line bg-surf', className) }, children);
+    const stageStates = d => {
+      if (!d) return Array(8).fill('todo'); const e = d.extraction?.status === 'done', c = d.classification?.status === 'done', s = d.status;
+      if (s === 'rejected') return ['done', 'fail', ...Array(6).fill('todo')]; if (s === 'completed') return Array(8).fill('done');
+      const n = c ? 6 : e ? 4 : s === 'received' ? 1 : 2, a = Array(8).fill('todo'); for (let i = 0; i < n; i++)a[i] = 'done'; a[n] = s === 'failed' ? 'fail' : s === 'pending_retry' ? 'wait' : 'active'; return a
+    };
+    const narr = d => {
+      const e = d.extraction?.status, c = d.classification?.status, o = [];
+      o.push(e === 'done' ? 'Extraction completed; checkpoint saved.' : e ? 'Extraction ' + e + '.' : 'Extraction status not reported.');
+      if (c === 'done') o.push('Classification completed; checkpoint saved.');
+      else if (d.status === 'failed' || d.status === 'pending_retry') o.push(e === 'done' ? 'Extraction checkpoint retained. A retry resumes at classification without repeating extraction.' : 'A retry restarts at extraction.');
+      else o.push(c ? 'Classification ' + c + '.' : 'Classification status not reported.'); return o
+    };
+    /* ===== Data hook: polling with in-flight guard, stale handling, hidden-tab pause ===== */
+    function useDash(api) {
+      const [s, set] = useState({ msgs: null, stats: null, health: null, lastOk: null, fails: 0, allFail: false, busy: false, sawData: false });
+      const fly = useRef(false), gen = useRef(0);
+      const load = useCallback(async () => {
+        if (fly.current) return; fly.current = true; const g = gen.current; set(p => ({ ...p, busy: true }));
+        const r = await Promise.allSettled([api.list(), api.stats(), api.health()]); fly.current = false; if (g !== gen.current) return;
+        const ok = r.filter(x => x.status === 'fulfilled').length, val = i => r[i].status === 'fulfilled';
+        set(p => ({ ...p, busy: false, msgs: val(0) ? normList(r[0].value) : p.msgs, stats: val(1) ? normStats(r[1].value) : p.stats, health: val(2) ? normHealth(r[2].value) : p.health, lastOk: ok ? new Date() : p.lastOk, fails: ok === 3 ? 0 : p.fails + 1, allFail: ok === 0, sawData: p.sawData || ok > 0 }))
+      }, [api]);
+      useEffect(() => {
+        gen.current++; fly.current = false; set({ msgs: null, stats: null, health: null, lastOk: null, fails: 0, allFail: false, busy: false, sawData: false }); load();
+        const t = setInterval(() => { if (!document.hidden) load() }, 2500), vis = () => { if (!document.hidden) load() }; document.addEventListener('visibilitychange', vis);
+        return () => { clearInterval(t); document.removeEventListener('visibilitychange', vis); gen.current++ }
+      }, [api]);
+      return { ...s, load }
+    }
+    /* ===== Components ===== */
+    function Header({ d, mode, setMode, llmDown, setLlmDown, onExport, exporting, onRefresh }) {
+      const [now, setNow] = useState(new Date()); useEffect(() => { const t = setInterval(() => setNow(new Date()), 1e3); return () => clearInterval(t) }, []);
+      const conn = !d.sawData ? (d.fails ? ['bg-terra', 'Backend unavailable'] : ['bg-mute', 'Connecting']) : d.allFail && d.fails >= 3 ? ['bg-terra', 'Backend unavailable'] : d.fails ? ['bg-ochre', 'Stale: latest request failed'] : ['bg-sage', 'Connected'];
+      return h('header', { className: 'flex flex-wrap items-end justify-between gap-4 border-b border-line pb-5' },
+        h('div', { className: 'flex items-center gap-4' },
+          h('div', { 'aria-hidden': true, className: 'flex h-11 w-11 items-center justify-center rounded-full border border-ink font-serif text-2xl leading-none' }, 'K'),
+          h('div', null, h('h1', { className: 'font-serif text-3xl leading-tight sm:text-4xl' }, 'Kestrel Ticket Desk'), h('p', { className: 'text-sm text-mute' }, 'Customer support intelligence · Operations'))),
+        h('div', { className: 'flex flex-wrap items-center gap-3 text-xs' },
+          h('div', { className: 'text-right' }, h('div', { className: 'font-mono tn' }, now.toLocaleTimeString()), h('div', { className: 'flex items-center justify-end gap-1.5 text-mute', role: 'status' }, h('span', { className: 'h-1.5 w-1.5 rounded-full ' + conn[0] }), conn[1])),
+          h('div', { className: 'flex overflow-hidden rounded-md border border-line', role: 'group', 'aria-label': 'Data source' }, ['demo', 'live'].map(m => h('button', { key: m, onClick: () => setMode(m), 'aria-pressed': mode === m, className: cx('px-3 py-1.5 font-medium capitalize', mode === m ? 'bg-ink text-canvas' : 'bg-surf') }, m))),
+          mode === 'demo' && h('label', { className: 'flex items-center gap-1.5 text-mute' }, h('input', { type: 'checkbox', checked: llmDown, onChange: e => setLlmDown(e.target.checked) }), 'Simulate LLM outage'),
+          h(Btn, { onClick: onRefresh, disabled: d.busy, 'aria-label': 'Refresh now' }, d.busy ? 'Refreshing…' : 'Refresh'),
+          h(Btn, { kind: 'solid', onClick: onExport, disabled: exporting }, exporting ? 'Exporting…' : 'Export results')))
+    }
+    const HC = { healthy: ['bg-sage', 'Healthy'], degraded: ['bg-ochre', 'Degraded'], unavailable: ['bg-terra', 'Unavailable'], unknown: ['bg-mute', 'Unknown'] };
+    function Health({ d }) {
+      const rec = useRef(false), [ok, setOk] = useState(false), H = d.health, bad = H && (H.llm.status === 'unavailable' || H.storage.status === 'unavailable');
+      useEffect(() => { if (bad) rec.current = true; else if (H && rec.current) { rec.current = false; setOk(true); const t = setTimeout(() => setOk(false), 8e3); return () => clearTimeout(t) } }, [bad, !!H]);
+      const item = (k, name, note, impact) => { const x = H ? H[k] : { status: 'unknown', detail: null }, c = HC[x.status]; return { name, x, c, note, impact } };
+      const rows = [item('llm', 'LLM service', 'Backend reachability does not imply the LLM is healthy.', 'New or pending extraction and classification stages may fail or be delayed.'), item('storage', 'Storage', '', 'Messages may not be accepted, and processing results may not be saved. Persistence cannot be confirmed.')];
+      return h('div', { className: 'space-y-3' },
+        rows.filter(r => r.x.status === 'unavailable').map(r => h('div', { key: r.name, role: 'alert', className: 'rounded-lg border border-terra bg-terrabg px-4 py-3 text-sm' }, h('strong', { className: 'font-medium' }, r.name + ' unavailable. '), r.impact, r.x.detail && h('span', { className: 'text-mute' }, ' Reported: ' + r.x.detail))),
+        ok && h('div', { role: 'status', className: 'rounded-lg border border-sage bg-sagebg px-4 py-3 text-sm' }, 'Services recovered. Pending work will continue from its last saved checkpoint.'),
+        !H && d.sawData && h('div', { className: 'rounded-lg border border-line bg-surf px-4 py-3 text-sm text-mute' }, 'The /health response was not available, so service status is shown as Unknown.'),
+        h('div', { className: 'grid gap-3 sm:grid-cols-2' }, rows.map(r => h(Card, { key: r.name, className: 'flex items-start gap-3 px-4 py-3' },
+          h('span', { className: 'mt-1.5 h-2 w-2 shrink-0 rounded-full ' + r.c[0] }),
+          h('div', { className: 'min-w-0 text-sm' }, h('div', { className: 'flex items-baseline gap-2' }, h('span', { className: 'font-medium' }, r.name), h('span', { className: 'text-mute' }, r.c[1])),
+            h('p', { className: 'text-xs text-mute' }, r.x.detail || (r.x.status === 'unknown' ? 'No reliable status from the backend yet.' : r.x.status === 'healthy' ? (r.x.at ? 'Last observed ' + rel(r.x.at) : 'Reported healthy on the last poll.') : 'Last poll reported a problem.'), r.note && r.x.status === 'unknown' ? ' ' + r.note : ''))))))
+    }
+    const MET = [['received', 'Received', 'Unique message IDs stored. Duplicate deliveries are counted separately.', 'text-ink'], ['in_progress', 'In progress', 'Received, processing, or waiting to retry.', 'text-ochre'], ['completed', 'Completed', 'Both stages saved and the final result persisted.', 'text-sage'], ['failed', 'Failed', 'Retry limit reached; needs operator action.', 'text-terra'], ['rejected', 'Rejected', 'Failed validation and was never processed.', 'text-ink'], ['duplicates_ignored', 'Duplicates ignored', 'Repeat deliveries of an existing message ID; no new record.', 'text-ink']];
+    function Metrics({ d }) {
+      const S = d.stats;
+      return h('div', { className: 'space-y-3' }, h('div', { className: 'grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6' }, MET.map(([k, l, t, c]) => h(Card, { key: k, className: 'px-4 py-3' }, h('div', { title: t, className: 'text-xs text-mute' }, l), h('div', { className: cx('font-serif text-4xl tn leading-none mt-2', S && typeof S[k] === 'number' ? c : 'text-mute') }, num(S && S[k])), h('p', { className: 'mt-2 text-xs leading-snug text-mute' }, t)))),
+        h('div', { className: 'flex flex-wrap gap-x-8 gap-y-1 px-1 text-sm' }, [['llm_calls', 'Total LLM calls', 'Every call to the extraction and classification stages.'], ['repeated_llm_calls', 'Repeated LLM calls', 'Calls beyond the two expected per message, caused by retries.']].map(([k, l, t]) => h('div', { key: k, title: t, className: 'flex items-baseline gap-2' }, h('span', { className: 'text-mute' }, l), h('span', { className: 'font-mono tn' }, num(S && S[k]))))))
+    }
+    const STG = [['Received', 'Message arrives'], ['Validated', 'Validated and persisted'], ['Extraction', 'LLM call 1'], ['Checkpoint', 'Extraction saved'], ['Classification', 'LLM call 2'], ['Checkpoint', 'Classification saved'], ['Persisted', 'Final result saved'], ['Completed', 'Done']];
+    const SC = { done: 'bg-sage border-sage text-surf', active: 'bg-ochre border-ochre text-surf', fail: 'bg-terra border-terra text-surf', wait: 'border-ochre text-ochre bg-surf', todo: 'border-line text-mute bg-surf' };
+    function Pipeline({ sel, failed }) {
+      const st = stageStates(sel);
+      return h(Card, { className: 'p-4' }, h('div', { className: 'flex flex-wrap items-baseline justify-between gap-2' }, h('h2', { className: 'font-serif text-xl' }, 'Processing pipeline'), h('p', { className: 'text-xs text-mute' }, sel ? ['Showing ', h('span', { key: 1, className: 'font-mono' }, sel.message_id)] : 'Select a message to see where it is.')),
+        h('ol', { className: 'mt-4 grid grid-cols-2 gap-x-3 gap-y-4 sm:grid-cols-4 lg:grid-cols-8' }, STG.map(([a, b], i) => h('li', { key: i, className: 'relative lg:after:absolute lg:after:left-9 lg:after:top-3 lg:after:h-px lg:after:bg-line lg:after:right-[-0.75rem] last:after:hidden' },
+          h('span', { className: 'relative z-10 flex h-6 w-6 items-center justify-center rounded-full border font-mono text-[11px] ' + SC[st[i]] }, st[i] === 'done' ? '✓' : st[i] === 'fail' ? '!' : i + 1),
+          h('div', { className: 'mt-2 text-sm font-medium leading-tight' }, a), h('div', { className: 'text-xs text-mute' }, b), st[i] === 'active' && h('div', { className: 'text-xs text-ochre' }, 'In progress'), st[i] === 'wait' && h('div', { className: 'text-xs text-ochre' }, 'Waiting to retry'), st[i] === 'fail' && h('div', { className: 'text-xs text-terra' }, sel.status === 'rejected' ? 'Rejected here' : 'Failed here')))),
+        h('div', { className: 'mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3 text-xs text-mute' },
+          h('p', null, 'Successful stages are saved. If a later stage fails, processing resumes from the last saved checkpoint.'),
+          h('p', null, 'Other states: rejected at validation · waiting to retry · failed after the retry limit · ', h('span', { className: 'font-mono tn text-ink' }, num(failed)), ' failed awaiting action')))
+    }
+    const Sel = ({ value, onChange, label, opts }) => h('select', { 'aria-label': label, value, onChange: e => onChange(e.target.value), className: 'rounded-md border border-line bg-surf px-2 py-1.5 text-xs' }, h('option', { value: '' }, label + ': all'), opts.map(o => h('option', { key: o, value: o }, ST[o] ? ST[o][1] : o)));
+    function Explorer({ msgs, selId, onSelect, fl, setFl, loaded }) {
+      const cats = useMemo(() => [...new Set((msgs || []).map(m => m.category).filter(Boolean))].sort(), [msgs]), urg = useMemo(() => [...new Set((msgs || []).map(m => m.urgency).filter(Boolean))].sort(), [msgs]);
+      const rows = useMemo(() => (msgs || []).filter(m => (!fl.q || (m.message_id + ' ' + (m.text || '')).toLowerCase().includes(fl.q.toLowerCase())) && (!fl.status || m.status === fl.status) && (!fl.cat || m.category === fl.cat) && (!fl.urg || m.urgency === fl.urg)), [msgs, fl]);
+      const any = fl.q || fl.status || fl.cat || fl.urg, up = k => x => setFl(f => ({ ...f, [k]: x }));
+      const th = 'px-3 py-2 text-left text-xs font-medium text-mute';
+      return h(Card, null, h('div', { className: 'flex flex-wrap items-center gap-2 border-b border-line p-3' },
+        h('h2', { className: 'mr-2 font-serif text-xl' }, 'Messages'),
+        h('input', { type: 'search', 'aria-label': 'Search by message ID or text', placeholder: 'Search ID or text', value: fl.q, onChange: e => up('q')(e.target.value), className: 'min-w-[10rem] flex-1 rounded-md border border-line bg-surf px-3 py-1.5 text-xs' }),
+        h(Sel, { value: fl.status, onChange: up('status'), label: 'Status', opts: Object.keys(ST) }), h(Sel, { value: fl.cat, onChange: up('cat'), label: 'Category', opts: cats }), h(Sel, { value: fl.urg, onChange: up('urg'), label: 'Urgency', opts: urg }),
+        h(Btn, { onClick: () => up('status')(fl.status === 'failed' ? '' : 'failed'), 'aria-pressed': fl.status === 'failed', className: fl.status === 'failed' ? 'border-terra text-terra' : '' }, 'Failed only'),
+        any && h(Btn, { onClick: () => setFl({ q: '', status: '', cat: '', urg: '' }) }, 'Clear filters')),
+        h('div', { className: 'overflow-x-auto' }, h('table', { className: 'w-full text-sm' },
+          h('thead', { className: 'border-b border-line' }, h('tr', null, ['Message ID', 'Customer message', 'Status', 'Category', 'Order', 'Urgency', 'Att.', 'Updated'].map((c, i) => h('th', { key: c, scope: 'col', className: th + (i === 4 ? ' hidden md:table-cell' : i === 5 ? ' hidden lg:table-cell' : '') }, c)), h('th', { scope: 'col', className: th + ' hidden xl:table-cell' }, 'Product'), h('th', { scope: 'col', className: th + ' hidden xl:table-cell' }, 'Requested action'))),
+          h('tbody', null, rows.map(m => h('tr', { key: m.message_id, onClick: () => onSelect(m.message_id), className: cx('cursor-pointer border-b border-line last:border-0 hover:bg-canvas', selId === m.message_id && 'bg-canvas') },
+            h('td', { className: 'px-3 py-2 align-top' }, h('button', { onClick: e => { e.stopPropagation(); onSelect(m.message_id) }, className: 'font-mono text-xs underline decoration-line underline-offset-2' }, m.message_id)),
+            h('td', { className: 'max-w-[22rem] px-3 py-2 align-top' }, h('div', { className: 'truncate', title: m.text }, m.text || h('span', { className: 'text-mute' }, '(empty)')), m.failure_reason && h('div', { className: 'truncate text-xs text-terra', title: m.failure_reason }, m.failure_reason)),
+            h('td', { className: 'px-3 py-2 align-top' }, h(Dot, { s: m.status })), h('td', { className: 'px-3 py-2 align-top text-xs' }, v(m.category)),
+            h('td', { className: 'hidden px-3 py-2 align-top font-mono text-xs md:table-cell' }, v(m.order_id)), h('td', { className: 'hidden px-3 py-2 align-top text-xs lg:table-cell' }, v(m.urgency)),
+            h('td', { className: 'px-3 py-2 align-top font-mono text-xs tn' }, v(m.attempts)), h('td', { className: 'px-3 py-2 align-top' }, h(Time, { t: m.updated_at })),
+            h('td', { className: 'hidden px-3 py-2 align-top text-xs xl:table-cell' }, v(m.product)), h('td', { className: 'hidden px-3 py-2 align-top text-xs xl:table-cell' }, v(m.requested_action))))))),
+        !loaded && h('p', { className: 'p-6 text-center text-sm text-mute' }, 'Loading messages…'),
+        loaded && !msgs && h('p', { className: 'p-6 text-center text-sm text-terra' }, 'Messages could not be loaded. Check that the backend is running and the API URL is correct.'),
+        msgs && !msgs.length && h('p', { className: 'p-6 text-center text-sm text-mute' }, 'No messages yet. Submit a test message or run the sender script.'),
+        msgs && msgs.length > 0 && !rows.length && h('p', { className: 'p-6 text-center text-sm text-mute' }, 'No loaded messages match these filters. Clear filters to see all.'),
+        msgs && h('p', { className: 'border-t border-line px-3 py-2 text-xs text-mute' }, 'Showing ', h('span', { className: 'tn' }, rows.length), ' of ', h('span', { className: 'tn' }, msgs.length), ' loaded records. Filters apply to loaded records only.'))
+    }
+    const KV = ({ k, children }) => h('div', { className: 'flex justify-between gap-4 py-1.5 text-sm' }, h('dt', { className: 'text-mute' }, k), h('dd', { className: 'min-w-0 break-words text-right' }, children));
+    function Detail({ id, api, tick, onClose, onRetry, pending, onData }) {
+      const [d, setD] = useState(null), [err, setErr] = useState(null);
+      useEffect(() => { setD(null); setErr(null) }, [id]);
+      useEffect(() => { if (!id) return; let on = true; api.get(id).then(x => { if (on) { setD(x); setErr(null); onData(x) } }).catch(e => on && setErr(e.message)); return () => { on = false } }, [id, tick, api]);
+      useEffect(() => { const k = e => e.key === 'Escape' && onClose(); addEventListener('keydown', k); return () => removeEventListener('keydown', k) }, []);
+      const Ck = (t, c) => h('div', { className: 'rounded-md border border-line p-3' }, h('div', { className: 'flex items-center justify-between text-sm' }, h('span', { className: 'font-medium' }, t), h('span', { className: 'text-xs text-mute' }, c?.status || 'not reported')), c?.result ? h('pre', { className: 'mt-2 overflow-x-auto whitespace-pre-wrap font-mono text-xs text-mute' }, JSON.stringify(c.result, null, 2)) : h('p', { className: 'mt-1 text-xs text-mute' }, 'No result saved.'));
+      return h('div', { className: cx('fixed inset-0 z-30', id ? '' : 'pointer-events-none') },
+        h('div', { onClick: onClose, className: cx('absolute inset-0 bg-ink transition-opacity', id ? 'opacity-20' : 'opacity-0') }),
+        h('aside', { 'aria-label': 'Message details', className: cx('absolute right-0 top-0 h-full w-full overflow-y-auto border-l border-line bg-surf p-5 transition-transform sm:w-[28rem]', id ? 'translate-x-0' : 'translate-x-full') },
+          id && h('div', null, h('div', { className: 'flex items-start justify-between gap-3' }, h('div', null, h('p', { className: 'text-xs text-mute' }, 'Message'), h('h2', { className: 'break-all font-mono text-lg' }, id)), h(Btn, { onClick: onClose, 'aria-label': 'Close details' }, 'Close')),
+            err && h('p', { role: 'alert', className: 'mt-4 rounded-md border border-terra bg-terrabg p-3 text-sm' }, err === 'Message not found' ? 'This message no longer exists in the backend.' : 'Could not load details: ' + err),
+            !d && !err && h('p', { className: 'mt-4 text-sm text-mute' }, 'Loading…'),
+            d && h('div', { className: 'mt-4 space-y-5' },
+              h('div', null, h('p', { className: 'mb-1 text-xs text-mute' }, 'Original message'), h('p', { className: 'rounded-md bg-canvas p-3 text-sm leading-relaxed' }, d.text || '(empty)')),
+              h('dl', { className: 'divide-y divide-line' }, h(KV, { k: 'Status' }, h(Dot, { s: d.status })), h(KV, { k: 'Category' }, v(d.category)), h(KV, { k: 'Order ID' }, h('span', { className: 'font-mono' }, v(d.order_id))), h(KV, { k: 'Product' }, v(d.product)), h(KV, { k: 'Urgency' }, v(d.urgency)), h(KV, { k: 'Requested action' }, v(d.requested_action)), h(KV, { k: 'Attempts' }, h('span', { className: 'font-mono tn' }, v(d.attempts))), h(KV, { k: 'Created' }, h(Time, { t: d.created_at })), h(KV, { k: 'Updated' }, h(Time, { t: d.updated_at }))),
+              d.failure_reason && h('div', { className: 'rounded-md border border-terra bg-terrabg p-3 text-sm' }, h('p', { className: 'text-xs text-mute' }, 'Failure reason'), d.failure_reason),
+              h('div', { className: 'space-y-2' }, h('h3', { className: 'font-serif text-lg' }, 'Checkpoints'), Ck('Extraction', d.extraction), Ck('Classification', d.classification), h('ul', { className: 'space-y-1 text-xs text-mute' }, narr(d).map((t, i) => h('li', { key: i }, t)))),
+              Array.isArray(d.events) && d.events.length > 0 && h('div', null, h('h3', { className: 'font-serif text-lg' }, 'Events'), h('ul', { className: 'mt-1 space-y-1 text-xs' }, d.events.map((e, i) => h('li', { key: i, className: 'flex gap-2' }, h(Time, { t: e.at || e.timestamp }), h('span', null, e.message || e.event || JSON.stringify(e)))))),
+              d.status === 'failed' && h(Btn, { kind: 'solid', disabled: pending['r:' + id], onClick: () => onRetry(id) }, pending['r:' + id] ? 'Retrying…' : 'Retry message')))))
+    }
+    function Failed({ msgs, pending, onRetry, onRetryAll, onSelect }) {
+      const f = (msgs || []).filter(m => m.status === 'failed'), [conf, setConf] = useState(false);
+      return h(Card, null, h('div', { className: 'flex flex-wrap items-center justify-between gap-2 border-b border-line p-3' }, h('h2', { className: 'font-serif text-xl' }, 'Failed messages ', h('span', { className: 'font-mono text-sm tn text-terra' }, f.length)),
+        conf ? h('div', { className: 'flex items-center gap-2 text-xs', role: 'alertdialog', 'aria-label': 'Confirm bulk retry' }, 'Retry all ' + f.length + ' eligible failed messages?', h(Btn, { kind: 'solid', onClick: () => { setConf(false); onRetryAll() } }, 'Confirm retry'), h(Btn, { onClick: () => setConf(false) }, 'Cancel')) : h(Btn, { disabled: !f.length || pending.all, onClick: () => setConf(true) }, pending.all ? 'Retrying all…' : 'Retry all failed')),
+        !f.length ? h('p', { className: 'p-6 text-center text-sm text-mute' }, 'No failed messages. Failures that reach the retry limit will appear here.') :
+          h('ul', null, f.map(m => h('li', { key: m.message_id, className: 'flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line px-3 py-2.5 last:border-0' },
+            h('button', { onClick: () => onSelect(m.message_id), className: 'font-mono text-xs underline decoration-line underline-offset-2' }, m.message_id),
+            h('span', { className: 'text-xs text-mute' }, v(m.category)), h('span', { className: 'font-mono text-xs tn' }, 'attempts ' + v(m.attempts)),
+            h('span', { className: 'min-w-[12rem] flex-1 text-xs text-terra' }, v(m.failure_reason)), h(Time, { t: m.updated_at }),
+            h(Btn, { disabled: pending['r:' + m.message_id] || pending.all, onClick: () => onRetry(m.message_id) }, pending['r:' + m.message_id] ? 'Retrying…' : 'Retry')))))
+    }
+    function Submit({ api, onDone }) {
+      const [open, setOpen] = useState(false), [id, setId] = useState(''), [tx, setTx] = useState(''), [er, setEr] = useState(null), [res, setRes] = useState(null), [busy, setBusy] = useState(false);
+      const go = async () => {
+        const e = {}; if (!id.trim()) e.id = 'Message ID is required.'; if (!tx.trim()) e.tx = 'Message text is required.'; setEr(e); setRes(null); if (Object.keys(e).length) return;
+        setBusy(true); try { const r = await api.submit({ message_id: id.trim(), text: tx }); const s = r && r.status; setRes({ kind: s === 'accepted' || s === 'ok' ? 'ok' : 'warn', text: (s ? s[0].toUpperCase() + s.slice(1) + '. ' : '') + ((r && (r.message || r.reason)) || '') }); if (s === 'accepted' || s === 'ok') { setId(''); setTx('') } onDone() } catch (x) { setRes({ kind: 'err', text: 'Not accepted: ' + x.message }) } setBusy(false)
+      };
+      const inp = 'w-full rounded-md border border-line bg-surf px-3 py-1.5 text-sm';
+      return h(Card, null, h('button', { onClick: () => setOpen(!open), 'aria-expanded': open, className: 'flex w-full items-center justify-between p-3 text-left' }, h('h2', { className: 'font-serif text-xl' }, 'Submit test message'), h('span', { className: 'text-xs text-mute' }, open ? 'Hide' : 'Show')),
+        open && h('div', { className: 'grid gap-3 border-t border-line p-3 sm:grid-cols-[14rem_1fr_auto] sm:items-start' },
+          h('div', null, h('label', { htmlFor: 'sid', className: 'text-xs text-mute' }, 'Message ID'), h('input', { id: 'sid', value: id, onChange: e => setId(e.target.value), className: inp + ' font-mono' }), er && er.id && h('p', { className: 'text-xs text-terra' }, er.id)),
+          h('div', null, h('label', { htmlFor: 'stx', className: 'text-xs text-mute' }, 'Customer message'), h('textarea', { id: 'stx', rows: 2, value: tx, onChange: e => setTx(e.target.value), className: inp }), er && er.tx && h('p', { className: 'text-xs text-terra' }, er.tx)),
+          h(Btn, { kind: 'solid', disabled: busy, onClick: go, className: 'sm:mt-5' }, busy ? 'Submitting…' : 'Submit message'),
+          res && h('p', { role: 'status', className: cx('text-xs sm:col-span-3', res.kind === 'ok' ? 'text-sage' : res.kind === 'warn' ? 'text-ochre' : 'text-terra') }, res.text)))
+    }
+    /* ===== App ===== */
+    function App() {
+      const [mode, setMode] = useState('demo'), [, bump] = useState(0), api = mode === 'demo' ? demoApi : liveApi;
+      const d = useDash(api), [fl, setFl] = useState({ q: '', status: '', cat: '', urg: '' }), [selId, setSel] = useState(null), [selData, setSelData] = useState(null), [pending, setPend] = useState({}), [note, setNote] = useState(null), [exporting, setExp] = useState(false), [tick, setTick] = useState(0), [llmDown, setLlm] = useState(false);
+      useEffect(() => { setSel(null); setSelData(null); D.llmDown = false; setLlm(false) }, [mode]);
+      useEffect(() => { if (selId) setTick(t => t + 1) }, [d.lastOk]);
+      useEffect(() => { if (!note) return; const t = setTimeout(() => setNote(null), 6e3); return () => clearTimeout(t) }, [note]);
+      const setDown = x => { D.llmDown = x; setLlm(x); d.load() };
+      const run = async (key, fn, ok) => {
+        if (pending[key]) return; setPend(p => ({ ...p, [key]: 1 }));
+        try { const r = await fn(); if (r && (r.ok === false || r.eligible === false)) setNote({ k: 'warn', t: r.reason || r.message || 'Not eligible for retry.' }); else setNote({ k: 'ok', t: (r && r.message) || ok }) } catch (e) { setNote({ k: 'err', t: 'Request failed: ' + e.message }) }
+        setPend(p => ({ ...p, [key]: 0 })); d.load(); setTick(t => t + 1)
+      };
+      const onRetry = id => run('r:' + id, () => api.retry(id), 'Retry accepted for ' + id), onRetryAll = () => run('all', () => api.retryAll(), 'Retry accepted for failed messages');
+      const onExport = async () => { setExp(true); try { const b = await api.export(), u = URL.createObjectURL(b), a = document.createElement('a'); a.href = u; a.download = 'results.json'; a.click(); URL.revokeObjectURL(u); setNote({ k: 'ok', t: 'Export downloaded from the backend.' }) } catch (e) { setNote({ k: 'err', t: 'Export failed: ' + e.message }) } setExp(false) };
+      const sel = selData && selData.message_id === selId ? selData : (d.msgs || []).find(m => m.message_id === selId) || null;
+      const conn = !d.sawData ? 'Connecting' : d.fails ? 'Stale' : 'Connected';
+      return h('div', { className: 'mx-auto max-w-[88rem] space-y-5 px-4 py-6 sm:px-8' },
+        mode === 'demo' && h('div', { className: 'rounded-md border border-ochre bg-ochrebg px-3 py-2 text-xs' }, 'Demo mode: sample data from a simulated backend, not your real tickets. Switch to Live to call the API at ', h('span', { className: 'font-mono' }, BASE), '.'),
+        h(Header, { d, mode, setMode, llmDown, setLlmDown: setDown, onExport, exporting, onRefresh: d.load }),
+        h(Health, { d }), h(Metrics, { d }), h(Pipeline, { sel, failed: d.stats && d.stats.failed }),
+        h(Explorer, { msgs: d.msgs, selId, onSelect: setSel, fl, setFl, loaded: d.sawData || d.fails > 0 }),
+        h(Failed, { msgs: d.msgs, pending, onRetry, onRetryAll, onSelect: setSel }), h(Submit, { api, onDone: d.load }),
+        h('footer', { className: 'flex flex-wrap items-center justify-between gap-2 border-t border-line pt-4 text-xs text-mute' }, h('span', null, 'Last successful update: ', h('span', { className: 'font-mono' }, d.lastOk ? d.lastOk.toLocaleTimeString() : 'never')), h('span', null, 'Connection: ' + conn), h('span', null, 'LLM calls: ', h('span', { className: 'font-mono tn' }, num(d.stats && d.stats.llm_calls)), ' · repeated ', h('span', { className: 'font-mono tn' }, num(d.stats && d.stats.repeated_llm_calls)))),
+        h(Detail, { id: selId, api, tick, onClose: () => setSel(null), onRetry, pending, onData: setSelData }),
+        note && h('div', { role: 'status', className: cx('fixed bottom-4 right-4 z-40 max-w-sm rounded-md border bg-surf px-4 py-3 text-sm shadow-sm', note.k === 'ok' ? 'border-sage' : note.k === 'warn' ? 'border-ochre' : 'border-terra') }, note.t))
+    }
+    ReactDOM.createRoot(document.getElementById('root')).render(h(App));
+  </script>
+</body>
+
+</html>

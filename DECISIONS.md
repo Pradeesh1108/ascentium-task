@@ -57,3 +57,24 @@ This document details key architectural decisions, trade-offs, and operational g
   - Includes `ngrok-skip-browser-warning: true` header to bypass ngrok free-tier interstitials.
   - Distinguishes transient errors (timeouts, connection resets, 429 rate limits, 5xx server errors) from permanent configuration/auth errors (401/403). Only transient errors are eligible for retry.
   - Parses JSON defensively, stripping potential markdown fences (` ```json `) before validating schemas in Python.
+
+---
+
+## 6. Durable Job Claiming & Stale Job Recovery in SQLite
+
+- **Decision**: Implement the durable work queue directly inside SQLite using atomic `UPDATE ... WHERE` conditional writes, without external queue infrastructure (Redis, RabbitMQ, Celery).
+- **Rationale**:
+  - The worker atomically claims an eligible job by setting `status = 'processing'` and `claimed_at = CURRENT_TIMESTAMP` in a single query.
+  - If a worker process abruptly crashes while processing, other workers automatically recover the stuck job once its lease (`CLAIM_TIMEOUT_SECONDS`, default 60s) expires.
+  - A slow or failing message never blocks other messages; the queue evaluates pending messages ordered by `created_at` whose retry backoff time has arrived.
+
+---
+
+## 7. Exponential Backoff & Non-Blocking Retry Scheduling
+
+- **Decision**: Persist `next_retry_at` timestamps on messages and use an exponential backoff curve (`RETRY_BACKOFF_BASE ** attempts`).
+- **Rationale**:
+  - Prevents busy-waiting and flooding an already struggling or rate-limited LLM API.
+  - After 3 consecutive processing failures, the message is marked `failed` with the exact error stored in `failure_reason`.
+  - Manual retries (`POST /messages/{id}/retry` and `POST /messages/retry-failed`) reset the status to `pending` and clear failure metadata while **strictly preserving all valid extraction and classification checkpoints**.
+
