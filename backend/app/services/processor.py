@@ -163,8 +163,9 @@ def finalize_message(
                 requested_action = ?,
                 failure_reason = NULL,
                 next_retry_at = NULL,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
             WHERE message_id = ?
+
             """,
             (
                 MessageStatus.COMPLETED.value,

@@ -135,8 +135,22 @@
     /* ===== Helpers ===== */
     const ST = { completed: ['bg-sage', 'Completed'], failed: ['bg-terra', 'Failed'], rejected: ['bg-terra', 'Rejected'], processing: ['bg-ochre', 'Processing'], pending_retry: ['bg-ochre', 'Waiting to retry'], received: ['bg-mute', 'Received'] };
     const Dot = ({ s }) => { const t = ST[s] || ['bg-mute', s || 'Unknown']; return h('span', { className: 'inline-flex items-center gap-1.5 text-xs whitespace-nowrap' }, h('span', { className: 'h-1.5 w-1.5 rounded-full ' + t[0] }), t[1]) };
-    const fmt = t => t ? new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'medium' }) : 'No timestamp';
-    const rel = t => { if (!t) return '—'; const s = (Date.now() - new Date(t)) / 1e3; return s < 60 ? 'just now' : s < 3600 ? Math.floor(s / 60) + 'm ago' : s < 86400 ? Math.floor(s / 3600) + 'h ago' : new Date(t).toLocaleDateString() };
+    const parseUtcDate = t => {
+      if (!t) return null;
+      if (t instanceof Date) return t;
+      let s = String(t).trim();
+      // SQLite stores UTC as 'YYYY-MM-DD HH:MM:SS'. Without Z, browsers parse it as local time!
+      if (s.includes(' ') && !s.includes('Z') && !s.includes('+')) {
+        s = s.replace(' ', 'T') + 'Z';
+      } else if (!s.endsWith('Z') && !s.includes('+') && s.includes('T')) {
+        s = s + 'Z';
+      }
+      const d = new Date(s);
+      return isNaN(d.getTime()) ? null : d;
+    };
+    const fmt = t => { const d = parseUtcDate(t); return d ? d.toLocaleString([], { dateStyle: 'medium', timeStyle: 'medium' }) : 'No timestamp'; };
+    const rel = t => { const d = parseUtcDate(t); if (!d) return '—'; const s = Math.max(0, (Date.now() - d.getTime()) / 1e3); return s < 60 ? 'just now' : s < 3600 ? Math.floor(s / 60) + 'm ago' : s < 86400 ? Math.floor(s / 3600) + 'h ago' : d.toLocaleDateString(); };
+
     const Time = ({ t }) => h('time', { title: fmt(t), dateTime: t || undefined, className: 'font-mono text-xs text-mute' }, rel(t));
     const v = x => x == null || x === '' ? '—' : x;
     const num = x => x == null || typeof x !== 'number' ? '—' : x.toLocaleString();

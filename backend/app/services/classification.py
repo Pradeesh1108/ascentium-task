@@ -117,13 +117,14 @@ def save_classification_checkpoint(message_id: str, result: ClassificationResult
             INSERT INTO processing_checkpoints (
                 message_id, stage, stage_status, result_json, stage_attempts, updated_at
             )
-            VALUES (?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+            VALUES (?, ?, ?, ?, 1, (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')))
             ON CONFLICT(message_id, stage) DO UPDATE SET
                 stage_status = excluded.stage_status,
                 result_json = excluded.result_json,
                 stage_attempts = stage_attempts + 1,
                 error = NULL,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+
             """,
             (
                 message_id,

@@ -36,8 +36,8 @@ def initialize_database() -> None:
                 failure_reason TEXT,
                 next_retry_at TEXT,
                 claimed_at TEXT,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
             );
 
             CREATE TABLE IF NOT EXISTS processing_checkpoints (
@@ -47,7 +47,7 @@ def initialize_database() -> None:
                 result_json TEXT,
                 stage_attempts INTEGER NOT NULL DEFAULT 0,
                 error TEXT,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
 
                 PRIMARY KEY (message_id, stage),
 
@@ -62,8 +62,9 @@ def initialize_database() -> None:
                 event_type TEXT NOT NULL,
                 stage TEXT,
                 details TEXT,
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
             );
+
 
             CREATE INDEX IF NOT EXISTS idx_messages_status
                 ON messages(status);

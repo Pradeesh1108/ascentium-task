@@ -55,7 +55,8 @@ def claim_next_job(lease_seconds: int = CLAIM_TIMEOUT_SECONDS) -> Optional[str]:
             SET
                 status = ?,
                 claimed_at = ?,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+
             WHERE message_id = ?
               AND (
                   (status = ? AND (next_retry_at IS NULL OR next_retry_at <= ?))
@@ -111,7 +112,7 @@ def handle_processing_failure(message_id: str, error_message: str) -> None:
                     failure_reason = ?,
                     claimed_at = NULL,
                     next_retry_at = NULL,
-                    updated_at = CURRENT_TIMESTAMP
+                    updated_at = (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
                 WHERE message_id = ?
                 """,
                 (
@@ -141,7 +142,7 @@ def handle_processing_failure(message_id: str, error_message: str) -> None:
                     failure_reason = ?,
                     claimed_at = NULL,
                     next_retry_at = ?,
-                    updated_at = CURRENT_TIMESTAMP
+                    updated_at = (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
                 WHERE message_id = ?
                 """,
                 (
@@ -184,7 +185,7 @@ def manual_retry_message(message_id: str) -> bool:
                 failure_reason = NULL,
                 claimed_at = NULL,
                 next_retry_at = NULL,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
             WHERE message_id = ?
             """,
             (MessageStatus.PENDING.value, message_id),
@@ -223,11 +224,12 @@ def manual_retry_all_failed() -> int:
                 failure_reason = NULL,
                 claimed_at = NULL,
                 next_retry_at = NULL,
-                updated_at = CURRENT_TIMESTAMP
+                updated_at = (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
             WHERE status = ?
             """,
             (MessageStatus.PENDING.value, MessageStatus.FAILED.value),
         )
+
 
         for mid in failed_ids:
             record_event(
