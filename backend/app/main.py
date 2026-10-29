@@ -1,12 +1,12 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
-from app.database import (
-    initialize_database,
-    check_database_health,
-)
+from app.database import initialize_database
+from app.routes.dashboard import router as dashboard_router
 from app.routes.messages import router as messages_router
+from app.routes.results import router as results_router
 
 
 @asynccontextmanager
@@ -16,34 +16,29 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Ascentium Task",
+    title="Ticket Intelligence System",
     description="Customer ticket processing and classification API",
     version="1.0.0",
     lifespan=lifespan,
 )
 
-app.include_router(messages_router)
+# Enable CORS for frontend/dashboard access
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
+app.include_router(messages_router)
+app.include_router(dashboard_router)
+app.include_router(results_router)
 
 
 @app.get("/")
 def root():
     return {
-        "service": "Ascentium Task",
+        "service": "Ticket Intelligence System",
         "status": "running",
-    }
-
-
-@app.get("/health")
-def health():
-    database_healthy = check_database_health()
-
-    return {
-        "status": "healthy" if database_healthy else "degraded",
-        "services": {
-            "database": (
-                "healthy" if database_healthy else "unavailable"
-            ),
-            "llm": "not_configured",
-        },
     }

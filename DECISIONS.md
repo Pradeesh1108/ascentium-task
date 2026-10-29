@@ -78,3 +78,34 @@ This document details key architectural decisions, trade-offs, and operational g
   - After 3 consecutive processing failures, the message is marked `failed` with the exact error stored in `failure_reason`.
   - Manual retries (`POST /messages/{id}/retry` and `POST /messages/retry-failed`) reset the status to `pending` and clear failure metadata while **strictly preserving all valid extraction and classification checkpoints**.
 
+---
+
+## 8. REST API Contracts & Operational Transparency
+
+- **Decision**: Keep HTTP handlers thin and delegating strictly to modular domain services. Expose operational and debugging states via `GET /messages/{id}`.
+- **Rationale**:
+  - Operators can inspect full checkpoint states (Stage A and Stage B results, errors, stage attempt counters) without logging sensitive raw message bodies to log aggregators.
+  - Pagination (`page`, `limit`) and status filtering on `GET /messages` utilize SQLite index `idx_messages_status` to maintain predictable query latency.
+
+---
+
+## 9. Final Results Export Policy & Exact Contract Compliance
+
+- **Decision**: Strict 7-field contract enforcement (`message_id`, `status`, `category`, `order_id`, `product`, `urgency`, `requested_action`) on `GET /results/export`.
+- **Rationale**:
+  - Excludes internal mechanics (`attempts`, `failure_reason`, timestamps, checkpoint JSON) to prevent leaking internal database schemas to downstream analytics consumers.
+  - **Export Policy for Unfinished Records**:
+    - `completed`: Exports resolved category, order_id, product, urgency, and requested_action.
+    - `rejected`: Exports status `rejected` with `null` values for all 5 classification/extraction attributes.
+    - `failed` or unfinished (`pending`/`processing`): Exports status `failed` with `null` values for attributes, ensuring unfinished tickets are never misrepresented as successfully processed.
+
+---
+
+## 10. Dashboard & Health Check Decoupling
+
+- **Decision**: Decouple `GET /health` and `GET /stats` from live external LLM calls.
+- **Rationale**:
+  - Frequent polling by uptime monitors or frontend dashboards (such as the Kestrel Ticket Desk) would incur significant costs, consume API rate limits, and cause artificial failures during upstream rate-limiting.
+  - Database health is verified via a lightweight connection test (`SELECT 1`), while LLM health reports configuration state and logs errors asynchronously from processing attempts.
+
+

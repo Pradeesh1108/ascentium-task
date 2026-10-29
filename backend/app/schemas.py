@@ -56,6 +56,20 @@ class MessageListItem(BaseModel):
     updated_at: str
 
 
+class PaginatedMessagesResponse(BaseModel):
+    items: List[MessageListItem]
+    total: int
+    page: int
+    limit: int
+    total_pages: int
+
+
+class RetryResponse(BaseModel):
+    requeued_count: int
+    details: str
+
+
+
 class ExtractionResult(BaseModel):
     order_id: Optional[str] = None
     product: Optional[str] = None
@@ -81,16 +95,21 @@ class ExportResultItem(BaseModel):
 
 class StatsResponse(BaseModel):
     unique_messages: int
+    received: Optional[int] = None
     in_progress: int
     completed: int
     failed: int
     rejected: int
     duplicates_ignored: int
     total_llm_calls: int
+    llm_calls: Optional[int] = None
     repeated_llm_calls: int
 
 
 class HealthResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
     status: Literal["healthy", "degraded", "unhealthy"]
     services: Dict[str, str]
+
 
