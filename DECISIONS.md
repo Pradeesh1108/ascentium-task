@@ -119,5 +119,15 @@ This document details key architectural decisions, trade-offs, and operational g
   - Server-side filtering guarantees that selecting "Rejected" or any other filter immediately queries the entire database table and returns matching tickets within the 20-item viewport alongside Prev/Next pagination controls.
   - The "Failed messages" operator card independently monitors `GET /messages?status=failed` to ensure actionable failures are visible regardless of table filtering.
 
+---
+
+## 12. Message-Scoped Pipeline Inspection in Detail Pin Drawer
+
+- **Decision**: Move the 8-stage processing pipeline stepper directly inside the slide-over pin drawer (`Detail` component) for each individual message, removing the detached global pipeline from the main overview screen.
+- **Rationale**:
+  - Operators inspect pipeline progress in the context of a specific message. Embedding the 8-stage visual pipeline inside the detail drawer allows immediate inspection of exactly how and where that specific ticket executed (e.g., Stage 1 Received ✓, Stage 2 Validated with `Rejected here` exclamation badge, or active stages with spinning amber ringlights).
+  - De-clutters the top dashboard overview while expanding the drawer width to `sm:w-[32rem] md:w-[38rem]` for a clean, spacious 4-column responsive step track.
+
+
 
 
