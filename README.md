@@ -15,9 +15,9 @@ flowchart TD
     
     subgraph Background Worker Process
         Worker[Ticket Processing Worker] -->|Atomic Lease Claim| DB
-        Worker -->|Call 1: Extract order_id & product| LLM1[OpenAI-Compatible LLM]
+        Worker -->|Call 1: Classify category & urgency| LLM1[OpenAI-Compatible LLM]
         LLM1 -->|Validate & Save Checkpoint| DB
-        Worker -->|Call 2: Classify with context| LLM2[OpenAI-Compatible LLM]
+        Worker -.->|Call 2: Extract if Category != Other| LLM2[OpenAI-Compatible LLM]
         LLM2 -->|Validate & Save Checkpoint| DB
         Worker -->|Atomic Finalization: status=completed| DB
     end

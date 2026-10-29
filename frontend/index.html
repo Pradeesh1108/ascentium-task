@@ -207,16 +207,31 @@
     const Card = ({ className, children }) => h('section', { className: cx('rounded-lg border border-line bg-surf', className) }, children);
     const isDone = s => s === 'done' || s === 'completed';
     const stageStates = d => {
-      if (!d) return Array(8).fill('todo'); const e = isDone(d.extraction?.status), c = isDone(d.classification?.status), s = d.status;
-      if (s === 'rejected') return ['done', 'fail', ...Array(6).fill('todo')]; if (s === 'completed') return Array(8).fill('done');
-      const n = c ? 6 : e ? 4 : s === 'received' ? 1 : 2, a = Array(8).fill('todo'); for (let i = 0; i < n; i++)a[i] = 'done'; a[n] = s === 'failed' ? 'fail' : s === 'pending_retry' ? 'wait' : 'active'; return a
+      if (!d) return Array(8).fill('todo');
+      const c = isDone(d.classification?.status), e = isDone(d.extraction?.status), s = d.status;
+      if (s === 'rejected') return ['done', 'fail', ...Array(6).fill('todo')];
+      if (s === 'completed') return Array(8).fill('done');
+      const isOther = d.category === 'Other';
+      const n = (isOther && c) ? 6 : e ? 6 : c ? 4 : s === 'received' ? 1 : 2;
+      const a = Array(8).fill('todo');
+      for (let i = 0; i < n; i++) a[i] = 'done';
+      a[n] = s === 'failed' ? 'fail' : s === 'pending_retry' ? 'wait' : 'active';
+      return a;
     };
     const narr = d => {
       const e = d.extraction?.status, c = d.classification?.status, o = [];
-      o.push(isDone(e) ? 'Extraction completed; checkpoint saved.' : e ? 'Extraction ' + e + '.' : 'Extraction status not reported.');
       if (isDone(c)) o.push('Classification completed; checkpoint saved.');
-      else if (d.status === 'failed' || d.status === 'pending_retry') o.push(isDone(e) ? 'Extraction checkpoint retained. A retry resumes at classification without repeating extraction.' : 'A retry restarts at extraction.');
-      else o.push(c ? 'Classification ' + c + '.' : 'Classification status not reported.'); return o
+      else o.push(c ? 'Classification ' + c + '.' : 'Classification status not reported.');
+      if (d.category === 'Other') {
+        o.push('Category is Other: extraction stage safely skipped to conserve LLM calls.');
+      } else if (isDone(e)) {
+        o.push('Extraction completed; checkpoint saved.');
+      } else if (d.status === 'failed' || d.status === 'pending_retry') {
+        o.push(isDone(c) ? 'Classification checkpoint retained. A retry resumes at extraction without repeating classification.' : 'A retry restarts at classification.');
+      } else {
+        o.push(e ? 'Extraction ' + e + '.' : 'Extraction status not reported.');
+      }
+      return o;
     };
 
     /* ===== Data hook: polling with in-flight guard, stale handling, hidden-tab pause ===== */
@@ -308,7 +323,7 @@
       return h('div', { className: 'space-y-3' }, h('div', { className: 'grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6' }, MET.map(([k, l, t, c]) => h(Card, { key: k, className: 'px-4 py-3' }, h('div', { title: t, className: 'text-xs text-mute' }, l), h('div', { className: cx('font-serif text-4xl tn leading-none mt-2', S && typeof S[k] === 'number' ? c : 'text-mute') }, num(S && S[k])), h('p', { className: 'mt-2 text-xs leading-snug text-mute' }, t)))),
         h('div', { className: 'flex flex-wrap gap-x-8 gap-y-1 px-1 text-sm' }, [['llm_calls', 'Total LLM calls', 'Every call to the extraction and classification stages.'], ['repeated_llm_calls', 'Repeated LLM calls', 'Calls beyond the two expected per message, caused by retries.']].map(([k, l, t]) => h('div', { key: k, title: t, className: 'flex items-baseline gap-2' }, h('span', { className: 'text-mute' }, l), h('span', { className: 'font-mono tn' }, num(S && S[k]))))))
     }
-    const STG = [['Received', 'Message arrives'], ['Validated', 'Validated and persisted'], ['Extraction', 'LLM call 1'], ['Checkpoint', 'Extraction saved'], ['Classification', 'LLM call 2'], ['Checkpoint', 'Classification saved'], ['Persisted', 'Final result saved'], ['Completed', 'Done']];
+    const STG = [['Received', 'Message arrives'], ['Validated', 'Validated and persisted'], ['Classification', 'LLM call 1'], ['Checkpoint', 'Classification saved'], ['Extraction', 'LLM call 2'], ['Checkpoint', 'Extraction saved'], ['Persisted', 'Final result saved'], ['Completed', 'Done']];
     const SC = {
       done: 'bg-sage border-sage text-surf shadow-sm shadow-sage/30',
       active: 'bg-ochre border-ochre text-surf ring-4 ring-amber-400 ring-offset-2 ring-offset-surf animate-pulse scale-110 shadow-lg shadow-ochre/50',
@@ -318,6 +333,7 @@
     };
     function PipelineSteps({ d }) {
       const st = stageStates(d);
+      const isOther = d && d.category === 'Other';
       return h('section', { className: 'rounded-lg border border-line bg-canvas p-3.5 space-y-3' },
         h('div', { className: 'flex items-baseline justify-between gap-2' },
           h('h3', { className: 'font-serif text-base font-semibold' }, 'Processing pipeline'),
@@ -326,25 +342,28 @@
         h('ol', { className: 'grid grid-cols-2 gap-2 sm:grid-cols-4' },
           STG.map(([a, b], i) => h('li', { key: i, className: 'rounded-md border border-line bg-surf p-2 transition-all' },
             h('div', { className: 'flex items-center gap-1.5 mb-1' },
-              h('span', { className: cx('flex h-5 w-5 shrink-0 items-center justify-center rounded-full border font-mono text-[10px] transition-all duration-300', SC[st[i]]) },
-                st[i] === 'done' ? '✓' : st[i] === 'fail' ? '!' : st[i] === 'active' ? h('span', { className: 'animate-spin inline-block h-2.5 w-2.5 border-2 border-surf border-t-transparent rounded-full' }) : i + 1
+              h('span', { className: cx('flex h-5 w-5 shrink-0 items-center justify-center rounded-full border font-mono text-[10px] transition-all duration-300', (isOther && (i === 4 || i === 5)) ? 'bg-mute/20 border-mute text-mute' : SC[st[i]]) },
+                (isOther && (i === 4 || i === 5)) ? '—' : st[i] === 'done' ? '✓' : st[i] === 'fail' ? '!' : st[i] === 'active' ? h('span', { className: 'animate-spin inline-block h-2.5 w-2.5 border-2 border-surf border-t-transparent rounded-full' }) : i + 1
               ),
               h('span', { className: cx('text-xs font-medium leading-tight truncate', st[i] === 'active' && 'text-ochre font-semibold') }, a)
             ),
-            h('div', { className: 'text-[11px] text-mute leading-snug truncate' }, b),
+            h('div', { className: 'text-[11px] text-mute leading-snug truncate' }, (isOther && i === 4) ? 'Skipped (Other category)' : (isOther && i === 5) ? 'Checkpoint bypassed' : b),
+            (isOther && (i === 4 || i === 5)) ? h('div', { className: 'text-[11px] text-mute italic mt-1' }, 'Skipped') :
             st[i] === 'active' && h('div', { className: 'text-[11px] text-ochre font-semibold flex items-center gap-1 mt-1 animate-pulse' },
               h('span', { className: 'inline-block h-1 w-1 rounded-full bg-ochre animate-ping' }),
               'In progress…'
             ),
-            st[i] === 'wait' && h('div', { className: 'text-[11px] text-ochre mt-1' }, 'Waiting to retry'),
-            st[i] === 'fail' && h('div', { className: 'text-[11px] text-terra font-medium mt-1' }, d && d.status === 'rejected' ? 'Rejected here' : 'Failed here'),
-            st[i] === 'done' && i === 7 && h('div', { className: 'text-[11px] text-sage font-medium mt-1' }, 'Complete')
+            !isOther && st[i] === 'wait' && h('div', { className: 'text-[11px] text-ochre mt-1' }, 'Waiting to retry'),
+            !isOther && st[i] === 'fail' && h('div', { className: 'text-[11px] text-terra font-medium mt-1' }, d && d.status === 'rejected' ? 'Rejected here' : 'Failed here'),
+            !isOther && st[i] === 'done' && i === 7 && h('div', { className: 'text-[11px] text-sage font-medium mt-1' }, 'Complete')
           ))
         ),
         h('p', { className: 'text-[11px] text-mute border-t border-line pt-2' },
           d?.status === 'rejected'
             ? 'Message was rejected at validation (empty, whitespace, or oversized text). Upstream LLM calls were avoided.'
-            : 'Intermediate results are saved at checkpoints. Retries resume without re-running completed stages.'
+            : (isOther
+                ? 'Classified as Other: extraction stage safely bypassed to conserve LLM calls and avoid hallucinations.'
+                : 'Classification executes first. Extraction executes second, with durable checkpoints preserved across stages.')
         )
       );
     }

@@ -19,7 +19,7 @@ def setup_db(tmp_path, monkeypatch):
     return test_db
 
 
-def test_extraction_persisted(setup_db):
+def test_pipeline_checkpoints_persisted(setup_db):
     # Insert test message
     with get_connection() as conn:
         conn.execute(
@@ -28,30 +28,30 @@ def test_extraction_persisted(setup_db):
         )
 
     mock_llm = MagicMock(spec=LLMClient)
-    # Stage A return
+    # Stage A: Classification, Stage B: Extraction
     mock_llm.chat_completion.side_effect = [
-        {"order_id": "ORD-12345", "product": "Pulse Earbuds"},
         {"category": "Refund", "urgency": "High", "requested_action": "Refund duplicate charge"},
+        {"order_id": "ORD-12345", "product": "Pulse Earbuds"},
     ]
 
     success = process_message_stages("T-2001", client=mock_llm)
     assert success is True
     assert mock_llm.chat_completion.call_count == 2
 
-    # Verify extraction checkpoint in DB
-    checkpoints = get_checkpoints_for_message("T-2001")
-    assert StageName.EXTRACTION.value in checkpoints
-    status, data = checkpoints[StageName.EXTRACTION.value]
-    assert status == StageStatus.COMPLETED.value
-    assert data["order_id"] == "ORD-12345"
-    assert data["product"] == "Pulse Earbuds"
-
     # Verify classification checkpoint in DB
+    checkpoints = get_checkpoints_for_message("T-2001")
     assert StageName.CLASSIFICATION.value in checkpoints
     status, data = checkpoints[StageName.CLASSIFICATION.value]
     assert status == StageStatus.COMPLETED.value
     assert data["category"] == "Refund"
     assert data["urgency"] == "High"
+
+    # Verify extraction checkpoint in DB
+    assert StageName.EXTRACTION.value in checkpoints
+    status, data = checkpoints[StageName.EXTRACTION.value]
+    assert status == StageStatus.COMPLETED.value
+    assert data["order_id"] == "ORD-12345"
+    assert data["product"] == "Pulse Earbuds"
 
     # Verify message completed
     with get_connection() as conn:
@@ -63,30 +63,40 @@ def test_extraction_persisted(setup_db):
         assert row["urgency"] == "High"
 
 
-def test_classification_uses_saved_extraction_context(setup_db):
+def test_other_category_skips_extraction(setup_db):
     with get_connection() as conn:
         conn.execute(
             "INSERT INTO messages (message_id, text, status) VALUES (?, ?, ?)",
-            ("T-2002", "Need help with ORD-54321 Aura Smart Watch", "pending"),
+            ("T-2002", "Love your products! Great job team.", "pending"),
         )
 
     mock_llm = MagicMock(spec=LLMClient)
-    mock_llm.chat_completion.side_effect = [
-        {"order_id": "ORD-54321", "product": "Aura Smart Watch"},
-        {"category": "Technical issue", "urgency": "Medium", "requested_action": "Assist customer"},
-    ]
+    mock_llm.chat_completion.return_value = {
+        "category": "Other",
+        "urgency": "Low",
+        "requested_action": "Log customer compliment",
+    }
 
-    process_message_stages("T-2002", client=mock_llm)
+    success = process_message_stages("T-2002", client=mock_llm)
+    assert success is True
+    # Exactly ONE call made: extraction was completely skipped!
+    assert mock_llm.chat_completion.call_count == 1
 
-    # Inspect call arguments of classification (second call)
-    second_call_args = mock_llm.chat_completion.call_args_list[1]
-    messages_sent = second_call_args.kwargs["messages"]
-    user_prompt = messages_sent[1]["content"]
-    assert "ORD-54321" in user_prompt
-    assert "Aura Smart Watch" in user_prompt
+    checkpoints = get_checkpoints_for_message("T-2002")
+    assert StageName.CLASSIFICATION.value in checkpoints
+    assert StageName.EXTRACTION.value in checkpoints
+    assert checkpoints[StageName.EXTRACTION.value][1]["order_id"] is None
+    assert checkpoints[StageName.EXTRACTION.value][1]["product"] is None
+
+    with get_connection() as conn:
+        row = conn.execute("SELECT status, category, order_id, product FROM messages WHERE message_id = 'T-2002'").fetchone()
+        assert row["status"] == MessageStatus.COMPLETED.value
+        assert row["category"] == "Other"
+        assert row["order_id"] is None
+        assert row["product"] is None
 
 
-def test_classification_failure_does_not_repeat_extraction(setup_db):
+def test_extraction_failure_does_not_repeat_classification(setup_db):
     with get_connection() as conn:
         conn.execute(
             "INSERT INTO messages (message_id, text, status) VALUES (?, ?, ?)",
@@ -94,32 +104,31 @@ def test_classification_failure_does_not_repeat_extraction(setup_db):
         )
 
     mock_llm = MagicMock(spec=LLMClient)
-    # Stage A succeeds, Stage B raises exception
+    # Stage A (Classification) succeeds, Stage B (Extraction) fails
     mock_llm.chat_completion.side_effect = [
-        {"order_id": "ORD-99999", "product": None},
-        RuntimeError("LLM classification failed!"),
+        {"category": "Technical issue", "urgency": "Medium", "requested_action": "Fix broken product"},
+        RuntimeError("LLM extraction failed!"),
     ]
 
     with pytest.raises(RuntimeError):
         process_message_stages("T-2003", client=mock_llm)
 
-    # Verify Stage A is saved
+    # Verify Stage A (Classification) is saved
     checkpoints = get_checkpoints_for_message("T-2003")
-    assert StageName.EXTRACTION.value in checkpoints
-    assert checkpoints[StageName.EXTRACTION.value][0] == StageStatus.COMPLETED.value
-    assert StageName.CLASSIFICATION.value not in checkpoints
+    assert StageName.CLASSIFICATION.value in checkpoints
+    assert checkpoints[StageName.CLASSIFICATION.value][0] == StageStatus.COMPLETED.value
+    assert StageName.EXTRACTION.value not in checkpoints
 
     # Now resume with a new LLM call where Stage B succeeds
     mock_llm_resume = MagicMock(spec=LLMClient)
     mock_llm_resume.chat_completion.return_value = {
-        "category": "Technical issue",
-        "urgency": "Medium",
-        "requested_action": "Fix broken product",
+        "order_id": "ORD-99999",
+        "product": None,
     }
 
     process_message_stages("T-2003", client=mock_llm_resume)
 
-    # Crucial check: mock_llm_resume should be called only ONCE (for Stage B), Stage A was skipped!
+    # Crucial check: mock_llm_resume should be called only ONCE (for Stage B Extraction), Stage A was skipped!
     assert mock_llm_resume.chat_completion.call_count == 1
 
 

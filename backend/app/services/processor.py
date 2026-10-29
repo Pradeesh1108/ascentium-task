@@ -6,7 +6,7 @@ from app.database import get_connection, record_event
 from app.models import EventType, MessageStatus, StageName, StageStatus
 from app.schemas import ClassificationResult, ExtractionResult
 from app.services.classification import run_classification_stage
-from app.services.extraction import run_extraction_stage
+from app.services.extraction import run_extraction_stage, save_extraction_checkpoint
 from app.services.llm_client import LLMClient
 from app.services.retry import handle_processing_failure
 
@@ -57,12 +57,13 @@ def process_message_stages(
     message_id: str,
     client: Optional[LLMClient] = None,
 ) -> bool:
-    """Executes the two-stage pipeline with durable checkpoint resumption and atomic finalization.
+    """Executes the two-stage pipeline: Classification first, followed conditionally by Extraction.
 
-    Resume semantics:
-    - If extraction is missing: execute Call 1.
-    - If extraction is valid and classification is missing: skip Call 1, execute Call 2.
-    - If both checkpoints are valid: skip both LLM calls and execute finalization.
+    Optimization & Resume semantics:
+    - Stage A: Classification (LLM Call 1). If valid checkpoint exists, reused.
+    - If Category == "Other": Extraction is skipped (no LLM call wasted, order_id=null, product=null).
+    - If Category != "Other": Stage B Extraction is executed (LLM Call 2), or reused if checkpoint exists.
+    - If both checkpoints are valid: skip all LLM calls and execute atomic finalization.
     """
     # 1. Fetch message record
     with get_connection() as conn:
@@ -82,36 +83,10 @@ def process_message_stages(
     text = row["text"]
     checkpoints = get_checkpoints_for_message(message_id)
 
-    # 2. Stage A: Extraction
-    extraction_entry = checkpoints.get(StageName.EXTRACTION.value)
-    if extraction_entry and extraction_entry[0] == StageStatus.COMPLETED.value and extraction_entry[1]:
-        logger.info(f"Skipping Stage A for {message_id}; valid extraction checkpoint found.")
-        extraction_result = ExtractionResult(**extraction_entry[1])
-    else:
-        with get_connection() as conn:
-            record_event(
-                conn,
-                message_id,
-                EventType.STAGE_STARTED.value,
-                stage=StageName.EXTRACTION.value,
-                details="Starting Stage A extraction",
-            )
-
-        extraction_result = run_extraction_stage(message_id, text, client=client)
-
-        with get_connection() as conn:
-            record_event(
-                conn,
-                message_id,
-                EventType.STAGE_COMPLETED.value,
-                stage=StageName.EXTRACTION.value,
-                details=f"Completed Stage A: order_id={extraction_result.order_id}, product={extraction_result.product}",
-            )
-
-    # 3. Stage B: Classification
+    # 2. Stage A: Classification (Primary Stage)
     classification_entry = checkpoints.get(StageName.CLASSIFICATION.value)
     if classification_entry and classification_entry[0] == StageStatus.COMPLETED.value and classification_entry[1]:
-        logger.info(f"Skipping Stage B for {message_id}; valid classification checkpoint found.")
+        logger.info(f"Skipping Stage A for {message_id}; valid classification checkpoint found.")
         classification_result = ClassificationResult(**classification_entry[1])
     else:
         with get_connection() as conn:
@@ -120,13 +95,12 @@ def process_message_stages(
                 message_id,
                 EventType.STAGE_STARTED.value,
                 stage=StageName.CLASSIFICATION.value,
-                details="Starting Stage B classification with extraction context",
+                details="Starting Stage A classification",
             )
 
         classification_result = run_classification_stage(
             message_id,
             text,
-            extraction_result,
             client=client,
         )
 
@@ -136,8 +110,47 @@ def process_message_stages(
                 message_id,
                 EventType.STAGE_COMPLETED.value,
                 stage=StageName.CLASSIFICATION.value,
-                details=f"Completed Stage B: category={classification_result.category}, urgency={classification_result.urgency}",
+                details=f"Completed Stage A: category={classification_result.category}, urgency={classification_result.urgency}",
             )
+
+    # 3. Stage B: Extraction (Conditional on Category != 'Other')
+    if classification_result.category == "Other":
+        logger.info(f"Message {message_id} classified as 'Other'; skipping extraction stage to prevent wasted LLM work.")
+        extraction_result = ExtractionResult(order_id=None, product=None)
+        save_extraction_checkpoint(message_id, extraction_result)
+        with get_connection() as conn:
+            record_event(
+                conn,
+                message_id,
+                EventType.STAGE_COMPLETED.value,
+                stage=StageName.EXTRACTION.value,
+                details="Extraction stage skipped: category is Other",
+            )
+    else:
+        extraction_entry = checkpoints.get(StageName.EXTRACTION.value)
+        if extraction_entry and extraction_entry[0] == StageStatus.COMPLETED.value and extraction_entry[1]:
+            logger.info(f"Skipping Stage B for {message_id}; valid extraction checkpoint found.")
+            extraction_result = ExtractionResult(**extraction_entry[1])
+        else:
+            with get_connection() as conn:
+                record_event(
+                    conn,
+                    message_id,
+                    EventType.STAGE_STARTED.value,
+                    stage=StageName.EXTRACTION.value,
+                    details=f"Starting Stage B extraction for category={classification_result.category}",
+                )
+
+            extraction_result = run_extraction_stage(message_id, text, client=client)
+
+            with get_connection() as conn:
+                record_event(
+                    conn,
+                    message_id,
+                    EventType.STAGE_COMPLETED.value,
+                    stage=StageName.EXTRACTION.value,
+                    details=f"Completed Stage B: order_id={extraction_result.order_id}, product={extraction_result.product}",
+                )
 
     # 4. Atomic Finalization
     finalize_message(message_id, extraction_result, classification_result)

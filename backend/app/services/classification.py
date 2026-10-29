@@ -51,13 +51,16 @@ Respond ONLY with valid JSON in this exact structure:
 def run_classification_stage(
     message_id: str,
     text: str,
-    extraction: ExtractionResult,
+    extraction: Optional[ExtractionResult] = None,
     client: Optional[LLMClient] = None,
 ) -> ClassificationResult:
-    """Executes Stage B classification with extraction context, validates fields, and saves checkpoint."""
+    """Executes Stage A classification, validates fields, and saves checkpoint."""
     llm = client or get_llm_client()
 
-    context_str = f"Extracted Context:\n- Order ID: {extraction.order_id}\n- Product: {extraction.product}\n\nCustomer Message:\n{text}"
+    if extraction and (extraction.order_id or extraction.product):
+        context_str = f"Extracted Context:\n- Order ID: {extraction.order_id}\n- Product: {extraction.product}\n\nCustomer Message:\n{text}"
+    else:
+        context_str = f"Customer Message:\n{text}"
 
     messages = [
         {"role": "system", "content": CLASSIFICATION_SYSTEM_PROMPT},

@@ -128,6 +128,48 @@ This document details key architectural decisions, trade-offs, and operational g
   - Operators inspect pipeline progress in the context of a specific message. Embedding the 8-stage visual pipeline inside the detail drawer allows immediate inspection of exactly how and where that specific ticket executed (e.g., Stage 1 Received ✓, Stage 2 Validated with `Rejected here` exclamation badge, or active stages with spinning amber ringlights).
   - De-clutters the top dashboard overview while expanding the drawer width to `sm:w-[32rem] md:w-[38rem]` for a clean, spacious 4-column responsive step track.
 
+---
+
+## 13. Delivery Idempotency vs. The Hazards of Semantic Deduplication
+
+- **Decision**: Enforce message uniqueness strictly at the platform delivery boundary (`message_id` as primary key) rather than applying naive text embeddings or semantic similarity matching across incoming messages.
+- **Rationale & Analysis**:
+  - In customer support systems, two distinct customers often send word-for-word identical complaints (e.g. "My internet is down" or "Where is my parcel?"). Conflating these via text similarity would silently drop one customer's ticket.
+  - Furthermore, template-like enquiries (e.g. Customer A: *"Need help with ORD-12345"* vs. Customer B: *"Need help with ORD-12346"*) have an extraordinarily high embedding cosine similarity (~0.98), yet they reference completely distinct orders and customer accounts. Deduplicating by similarity would falsely merge separate order issues.
+  - **Production Entity-Aware Policy**: True deduplication must be delivery-idempotent by `message_id` first. Cross-message deduplication is only valid when scoped to the same authenticated customer ID, within a tight time window (e.g. 15 minutes), and after verifying that extracted entities (`order_id`, `product`) match.
+
+---
+
+## 14. Realtime Database Polling Mitigation & Event-Driven Evolution
+
+- **Decision**: Optimize polling overhead by implementing adaptive backoff on the frontend and document the transition path to event-driven push distribution (SSE / WebSockets).
+- **Rationale & Trade-offs**:
+  - Unconstrained interval polling (e.g. querying `/messages`, `/stats`, and `/health` every 2.5s) incurs continuous database I/O, lock overhead, and unnecessary network traffic during idle periods.
+  - **Implemented Optimization**: The client tracks background visibility and adapts polling cadence, reducing polling pressure when active jobs are zero.
+  - **Production Roadmap**: In high-scale production systems, polling should be replaced by Server-Sent Events (SSE) or WebSockets from FastAPI. The backend emits lightweight event packets (`ticket.created`, `ticket.stage_completed`, `ticket.failed`) when database state transitions occur, dropping idle database queries to zero.
+
+---
+
+## 15. Classification-First Pipeline & Cost-Optimized Conditional Extraction
+
+- **Decision**: Invert the pipeline sequence so that Stage A executes **Classification** first, followed conditionally by **Extraction** as Stage B only when `category != "Other"`.
+- **Rationale & Impact**:
+  - Messages classified as `"Other"` typically encompass promotional spam, general compliments, or questions containing neither an order ID nor an identifiable product catalogue item.
+  - By classifying first, the system safely bypasses Stage B (Extraction) whenever `category == "Other"`, setting `order_id = null` and `product = null` with an explicit `skipped` checkpoint.
+  - **Efficiency Gain**: Eliminates 50% of the expensive LLM calls for general and spam messages, dramatically lowering token costs, preventing hallucinations, and maximizing overall pipeline throughput.
+  - **Resume Guarantee**: Classification checkpoints remain fully durable. If an extraction attempt fails on an eligible ticket, retries resume directly at extraction without repeating classification.
+
+---
+
+## 16. Service Decoupling & Blast-Radius Isolation Roadmap
+
+- **Architecture Strategy for Stage Isolation**:
+  - To prevent a classifier outage or upstream LLM rate-limit from bringing down the entire pipeline, the architecture cleanly isolates ingestion, classification, and extraction into decoupled execution boundaries:
+    1. **Ingestion Boundary**: `POST /messages` commits incoming payloads into the persistent queue in SQLite immediately, completely isolated from worker health.
+    2. **Independent Stage Workers / Asynchronous Hand-off**: Classification and extraction can be deployed as discrete worker pools communicating via task queues or checkpoint state transitions. If the classification service experiences degraded latency, extraction workers continue processing previously classified tickets, and ingestion never blocks.
+    3. **Fault-Specific Healing**: Because errors are logged per stage in `processing_checkpoints`, operators can target retries to specifically failed stages without touching successful checkpoints.
+
+
 
 
 
