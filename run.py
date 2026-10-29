@@ -2,10 +2,11 @@
 """Cross-platform runner for the Ticket Intelligence System.
 
 Works identically on macOS, Linux, and Windows.
-Starts both the FastAPI server (serving API + Kestrel Ticket Desk UI)
+Starts both the FastAPI server (serving API + Ticket Desk UI)
 and the background processing worker concurrently.
 """
 
+import os
 from pathlib import Path
 import shutil
 import signal
@@ -32,21 +33,23 @@ def main():
 
     prefix = get_command_prefix()
     use_uv = prefix[0] == "uv"
+    host = os.getenv("HOST", "0.0.0.0")
+    port = os.getenv("PORT", "8000")
 
     # Command definitions
     if use_uv:
-        api_cmd = ["uv", "run", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000", "--reload"]
+        api_cmd = ["uv", "run", "uvicorn", "app.main:app", "--host", host, "--port", port, "--reload"]
         worker_cmd = ["uv", "run", "python", "-m", "app.worker"]
     else:
-        api_cmd = [sys.executable, "-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", "8000"]
+        api_cmd = [sys.executable, "-m", "uvicorn", "app.main:app", "--host", host, "--port", port]
         worker_cmd = [sys.executable, "-m", "app.worker"]
 
     print("=" * 64)
-    print("  Project Kestrel — Ticket Intelligence System")
+    print("  Ticket Desk — Customer Support Intelligence System")
     print("=" * 64)
     print(f"  Working Directory: {BACKEND_DIR}")
     print("  Starting Services:")
-    print("    • FastAPI Backend + Kestrel Ticket Desk UI (Port 8000)")
+    print("    • FastAPI Backend + Ticket Desk UI (Port 8000)")
     print("    • Background Processing Worker")
     print("=" * 64)
     print("  Access URLs:")

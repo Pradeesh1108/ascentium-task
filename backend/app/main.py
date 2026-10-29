@@ -76,7 +76,7 @@ if FRONTEND_DIR.exists():
 
 @app.get("/", include_in_schema=False)
 def root():
-    """Serves the Kestrel Ticket Desk frontend UI if available, else API status."""
+    """Serves the Ticket Desk frontend UI if available, else API status."""
     if FRONTEND_INDEX.exists():
         return FileResponse(FRONTEND_INDEX)
     return {
@@ -87,7 +87,7 @@ def root():
 
 @app.get("/ui", include_in_schema=False)
 def serve_ui():
-    """Direct route for Kestrel Ticket Desk UI."""
+    """Direct route for Ticket Desk UI."""
     if FRONTEND_INDEX.exists():
         return FileResponse(FRONTEND_INDEX)
     return {

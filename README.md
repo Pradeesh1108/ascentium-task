@@ -1,4 +1,4 @@
-Project Kestrel
+Ticket Desk
 
 A reliable, modular, production-minded ticket processing backend that ingests customer support messages, extracts relevant entities, classifies issues with strict business logic via an LLM, and exposes operational controls and export APIs.
 
@@ -22,7 +22,7 @@ flowchart TD
         Worker -->|Atomic Finalization: status=completed| DB
     end
 
-    Dashboard[Kestrel Ticket Desk Dashboard] -->|GET /stats, GET /health| API
+    Dashboard[Ticket Desk Dashboard] -->|GET /stats, GET /health| API
     Analytics[Downstream Consumers] -->|GET /results/export| API
 ```
 
@@ -74,7 +74,7 @@ Edit `backend/.env` as needed:
 ## 5. How to Run
 
 ### Option A: One-Command Cross-Platform Startup (Recommended)
-You can launch both the FastAPI backend (with the integrated Kestrel Ticket Desk UI) and the background worker simultaneously using the cross-platform runner:
+You can launch both the FastAPI backend (with the integrated Ticket Desk UI) and the background worker simultaneously using the cross-platform runner:
 
 - **macOS / Linux**:
   ```bash

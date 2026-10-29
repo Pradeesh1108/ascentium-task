@@ -1,18 +1,46 @@
 version: '3.8'
 
 services:
-  ticket-system:
+  api:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: ticket-system
+    container_name: ticket-api
+    working_dir: /app/backend
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
     ports:
       - "8000:8000"
-    env_file:
-      - backend/.env
     environment:
       - PYTHONUNBUFFERED=1
       - DATABASE_PATH=/app/data/tickets.db
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - LLM_TIMEOUT_SECONDS=${LLM_TIMEOUT_SECONDS:-30}
     volumes:
-      - ./data:/app/data
+      - sqlite-data:/app/data
     restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: ticket-worker
+    working_dir: /app/backend
+    command: ["python", "-m", "app.worker"]
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_PATH=/app/data/tickets.db
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_MODEL=${LLM_MODEL:-gpt-4o-mini}
+      - LLM_TIMEOUT_SECONDS=${LLM_TIMEOUT_SECONDS:-30}
+    volumes:
+      - sqlite-data:/app/data
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  sqlite-data:
+    driver: local

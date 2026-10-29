@@ -343,8 +343,8 @@
       const conn = !d.sawData ? (d.fails ? ['bg-terra', 'Backend unavailable'] : ['bg-mute', 'Connecting']) : d.allFail && d.fails >= 3 ? ['bg-terra', 'Backend unavailable'] : d.fails ? ['bg-ochre', 'Stale: latest request failed'] : ['bg-sage', 'Connected'];
       return h('header', { className: 'flex flex-wrap items-end justify-between gap-4 border-b border-line pb-5' },
         h('div', { className: 'flex items-center gap-4' },
-          h('div', { 'aria-hidden': true, className: 'flex h-11 w-11 items-center justify-center rounded-full border border-ink font-serif text-2xl leading-none' }, 'K'),
-          h('div', null, h('h1', { className: 'font-serif text-3xl leading-tight sm:text-4xl' }, 'Kestrel Ticket Desk'), h('p', { className: 'text-sm text-mute' }, 'Customer support intelligence · Operations'))),
+          h('div', { 'aria-hidden': true, className: 'flex h-11 w-11 items-center justify-center rounded-full border border-ink font-serif text-2xl leading-none' }, 'T'),
+          h('div', null, h('h1', { className: 'font-serif text-3xl leading-tight sm:text-4xl' }, 'Ticket Desk'), h('p', { className: 'text-sm text-mute' }, 'Customer support intelligence · Operations'))),
         h('div', { className: 'flex flex-wrap items-center gap-3 text-xs' },
           h('div', { className: 'text-right' }, h('div', { className: 'font-mono tn' }, now.toLocaleTimeString()), h('div', { className: 'flex items-center justify-end gap-1.5 text-mute', role: 'status' }, h('span', { className: 'h-1.5 w-1.5 rounded-full ' + conn[0] }), conn[1])),
           h('div', { className: 'inline-flex items-center gap-1.5 rounded-md border border-line bg-surf px-3 py-1.5 font-medium' },

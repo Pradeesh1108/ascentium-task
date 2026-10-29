@@ -106,7 +106,7 @@ This document details key architectural decisions, trade-offs, and operational g
 
 - **Decision**: Decouple `GET /health` and `GET /stats` from live external LLM calls.
 - **Rationale**:
-  - Frequent polling by uptime monitors or frontend dashboards (such as the Kestrel Ticket Desk) would incur significant costs, consume API rate limits, and cause artificial failures during upstream rate-limiting.
+  - Frequent polling by uptime monitors or frontend dashboards (such as the Ticket Desk) would incur significant costs, consume API rate limits, and cause artificial failures during upstream rate-limiting.
   - Database health is verified via a lightweight connection test (`SELECT 1`), while LLM health reports configuration state and logs errors asynchronously from processing attempts.
 
 ---
@@ -175,13 +175,18 @@ This document details key architectural decisions, trade-offs, and operational g
 
 ---
 
-## 17. SQLAlchemy ORM Integration & Docker Compose Containerization
+## 17. SQLAlchemy ORM Integration & Docker Compose Multi-Container Architecture
 
-- **Decision**: Introduce standard SQLAlchemy declarative models (`MessageModel`, `ProcessingCheckpointModel`, `ProcessingEventModel`), engine pooling with PRAGMA connection listeners, and containerize the complete application with Docker and Docker Compose.
-- **Rationale**:
-  - Provides type-safe ORM access and database portability (SQLite in development, easily swapped to PostgreSQL/MySQL in production via `DATABASE_URL`).
-  - Maintains zero-disruption compatibility: existing raw query paths and test fixtures continue running without regression.
-  - **Docker Compose**: Evaluators and team members can boot the entire stack (FastAPI server, UI, WebSocket broadcaster, background worker process, and persistent volume storage) via a single command: `docker compose up --build`.
+- **Decision**: Introduce standard SQLAlchemy declarative models (`MessageModel`, `ProcessingCheckpointModel`, `ProcessingEventModel`), engine pooling with PRAGMA connection listeners, and multi-container Docker Compose deployment decoupling API and Worker services.
+- **SQLite Concurrency & Multi-Container Persistence Guarantees**:
+  1. **Persistent Docker Volume**: Defined named volume `sqlite-data` mounted at `/app/data` across container lifecycles, ensuring database records, intermediate checkpoints, and events survive container restarts and rebuilds.
+  2. **Shared Database File**: Both the `ticket-api` and `ticket-worker` services mount the exact same volume at `/app/data/tickets.db`.
+  3. **Safe Concurrent Access**:
+     - **WAL Mode (`PRAGMA journal_mode = WAL`)**: Enables non-blocking concurrent readers (API listing tickets, checking `/health` and `/stats`) alongside the writer.
+     - **Busy Timeout (`PRAGMA busy_timeout = 10000`)**: Configures SQLite engine and DBAPI connections to wait up to 10 seconds for locks rather than throwing immediate busy exceptions.
+     - **Atomic Job Claims**: Worker claims pending tasks using an atomic conditional update query (`UPDATE messages SET status='processing', claimed_at=? WHERE message_id=? AND status='pending'`), ensuring zero duplicate claims even under concurrent worker scaling.
+     - **Strict Unique Constraint**: Enforced on `message_id` as PRIMARY KEY to guarantee delivery idempotency.
+  4. **Docker Compose Execution**: Single-command startup (`docker compose up --build`) launches the API server, frontend UI, WebSocket stream, and background worker with shared volume persistence.
 
 
 
