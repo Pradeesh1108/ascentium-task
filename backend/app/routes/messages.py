@@ -58,7 +58,7 @@ def list_messages(
 
         query = f"""
             SELECT
-                message_id, status, category, order_id, product,
+                message_id, text, status, category, order_id, product,
                 urgency, requested_action, attempts, failure_reason,
                 created_at, updated_at
             FROM messages
@@ -71,6 +71,7 @@ def list_messages(
     items = [
         MessageListItem(
             message_id=row["message_id"],
+            text=row["text"],
             status=row["status"],
             category=row["category"],
             order_id=row["order_id"],
@@ -84,6 +85,7 @@ def list_messages(
         )
         for row in rows
     ]
+
 
     total_pages = math.ceil(total / limit) if total > 0 else 0
 
@@ -129,6 +131,9 @@ def get_message(message_id: str):
         ).fetchall()
 
     checkpoints = []
+    extraction_dict = None
+    classification_dict = None
+
     for c in ckpt_rows:
         raw_json = c["result_json"]
         parsed = None
@@ -137,16 +142,21 @@ def get_message(message_id: str):
                 parsed = json.loads(raw_json)
             except Exception:
                 pass
-        checkpoints.append(
-            CheckpointInfo(
-                stage=c["stage"],
-                stage_status=c["stage_status"],
-                result=parsed,
-                stage_attempts=c["stage_attempts"],
-                error=c["error"],
-                updated_at=c["updated_at"],
-            )
+
+        ckpt_obj = CheckpointInfo(
+            stage=c["stage"],
+            stage_status=c["stage_status"],
+            result=parsed,
+            stage_attempts=c["stage_attempts"],
+            error=c["error"],
+            updated_at=c["updated_at"],
         )
+        checkpoints.append(ckpt_obj)
+
+        if c["stage"] == "extraction":
+            extraction_dict = {"status": c["stage_status"], "result": parsed}
+        elif c["stage"] == "classification":
+            classification_dict = {"status": c["stage_status"], "result": parsed}
 
     return MessageDetailResponse(
         message_id=row["message_id"],
@@ -164,7 +174,10 @@ def get_message(message_id: str):
         created_at=row["created_at"],
         updated_at=row["updated_at"],
         checkpoints=checkpoints,
+        extraction=extraction_dict,
+        classification=classification_dict,
     )
+
 
 
 @router.post(

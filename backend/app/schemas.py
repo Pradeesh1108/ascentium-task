@@ -40,10 +40,13 @@ class MessageDetailResponse(BaseModel):
     created_at: str
     updated_at: str
     checkpoints: List[CheckpointInfo] = Field(default_factory=list)
+    extraction: Optional[Dict[str, Any]] = None
+    classification: Optional[Dict[str, Any]] = None
 
 
 class MessageListItem(BaseModel):
     message_id: str
+    text: Optional[str] = None
     status: str
     category: Optional[str] = None
     order_id: Optional[str] = None
@@ -54,6 +57,7 @@ class MessageListItem(BaseModel):
     failure_reason: Optional[str] = None
     created_at: str
     updated_at: str
+
 
 
 class PaginatedMessagesResponse(BaseModel):

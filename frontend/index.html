@@ -120,13 +120,9 @@
         mk('demo-1006', 'My Orbit kettle will not switch on. Order 31877. Is it under warranty?', { status: 'received', created_at: ago(1), updated_at: ago(1) })]
     };
     const sleep = ms => new Promise(r => setTimeout(r, ms)), cl = x => JSON.parse(JSON.stringify(x));
-    setInterval(() => {
-      if (D.llmDown) return; const m = D.msgs.find(x => ['received', 'pending_retry', 'processing'].includes(x.status)); if (!m) return;
-      if (m.status === 'processing') { Object.assign(m, { status: 'completed', category: 'Warranty', urgency: 'low', requested_action: 'Explain warranty terms', classification: done({ category: 'Warranty', urgency: 'low', requested_action: 'Explain warranty terms' }) }); m.calls += 1 }
-      else { m.status = 'processing'; if (m.extraction.status !== 'done') { m.order_id = '31877'; m.product = 'Orbit kettle'; m.extraction = done({ order_id: '31877', product: 'Orbit kettle' }); m.calls += 1 } }
-      m.attempts = Math.max(1, m.attempts); m.updated_at = ago(0)
-    }, 4000);
+    /* Demo interval disabled: dashboard runs in live production mode */
     const demoApi = {
+
       async health() { await sleep(120); return { llm: { status: D.llmDown ? 'unavailable' : 'healthy', detail: D.llmDown ? 'Simulated: upstream API not responding' : null }, storage: { status: 'healthy' } } },
       async stats() { await sleep(120); const c = s => D.msgs.filter(m => s.includes(m.status)).length; return { received: D.msgs.length, in_progress: c(['received', 'processing', 'pending_retry']), completed: c(['completed']), failed: c(['failed']), rejected: c(['rejected']), duplicates_ignored: D.dup, llm_calls: D.msgs.reduce((a, m) => a + m.calls, 0), repeated_llm_calls: D.msgs.reduce((a, m) => a + Math.max(0, m.calls - 2), 0) } },
       async list() { await sleep(120); return cl(D.msgs) },
@@ -146,18 +142,20 @@
     const num = x => x == null || typeof x !== 'number' ? '—' : x.toLocaleString();
     const Btn = ({ kind, className, ...p }) => h('button', { ...p, className: cx('inline-flex items-center justify-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed', kind === 'solid' ? 'border-ink bg-ink text-canvas hover:opacity-90' : kind === 'danger' ? 'border-terra text-terra hover:bg-terrabg' : 'border-line bg-surf hover:border-mute', className) });
     const Card = ({ className, children }) => h('section', { className: cx('rounded-lg border border-line bg-surf', className) }, children);
+    const isDone = s => s === 'done' || s === 'completed';
     const stageStates = d => {
-      if (!d) return Array(8).fill('todo'); const e = d.extraction?.status === 'done', c = d.classification?.status === 'done', s = d.status;
+      if (!d) return Array(8).fill('todo'); const e = isDone(d.extraction?.status), c = isDone(d.classification?.status), s = d.status;
       if (s === 'rejected') return ['done', 'fail', ...Array(6).fill('todo')]; if (s === 'completed') return Array(8).fill('done');
       const n = c ? 6 : e ? 4 : s === 'received' ? 1 : 2, a = Array(8).fill('todo'); for (let i = 0; i < n; i++)a[i] = 'done'; a[n] = s === 'failed' ? 'fail' : s === 'pending_retry' ? 'wait' : 'active'; return a
     };
     const narr = d => {
       const e = d.extraction?.status, c = d.classification?.status, o = [];
-      o.push(e === 'done' ? 'Extraction completed; checkpoint saved.' : e ? 'Extraction ' + e + '.' : 'Extraction status not reported.');
-      if (c === 'done') o.push('Classification completed; checkpoint saved.');
-      else if (d.status === 'failed' || d.status === 'pending_retry') o.push(e === 'done' ? 'Extraction checkpoint retained. A retry resumes at classification without repeating extraction.' : 'A retry restarts at extraction.');
+      o.push(isDone(e) ? 'Extraction completed; checkpoint saved.' : e ? 'Extraction ' + e + '.' : 'Extraction status not reported.');
+      if (isDone(c)) o.push('Classification completed; checkpoint saved.');
+      else if (d.status === 'failed' || d.status === 'pending_retry') o.push(isDone(e) ? 'Extraction checkpoint retained. A retry resumes at classification without repeating extraction.' : 'A retry restarts at extraction.');
       else o.push(c ? 'Classification ' + c + '.' : 'Classification status not reported.'); return o
     };
+
     /* ===== Data hook: polling with in-flight guard, stale handling, hidden-tab pause ===== */
     function useDash(api) {
       const [s, set] = useState({ msgs: null, stats: null, health: null, lastOk: null, fails: 0, allFail: false, busy: false, sawData: false });
@@ -185,10 +183,10 @@
           h('div', null, h('h1', { className: 'font-serif text-3xl leading-tight sm:text-4xl' }, 'Kestrel Ticket Desk'), h('p', { className: 'text-sm text-mute' }, 'Customer support intelligence · Operations'))),
         h('div', { className: 'flex flex-wrap items-center gap-3 text-xs' },
           h('div', { className: 'text-right' }, h('div', { className: 'font-mono tn' }, now.toLocaleTimeString()), h('div', { className: 'flex items-center justify-end gap-1.5 text-mute', role: 'status' }, h('span', { className: 'h-1.5 w-1.5 rounded-full ' + conn[0] }), conn[1])),
-          h('div', { className: 'flex overflow-hidden rounded-md border border-line', role: 'group', 'aria-label': 'Data source' }, ['demo', 'live'].map(m => h('button', { key: m, onClick: () => setMode(m), 'aria-pressed': mode === m, className: cx('px-3 py-1.5 font-medium capitalize', mode === m ? 'bg-ink text-canvas' : 'bg-surf') }, m))),
-          mode === 'demo' && h('label', { className: 'flex items-center gap-1.5 text-mute' }, h('input', { type: 'checkbox', checked: llmDown, onChange: e => setLlmDown(e.target.checked) }), 'Simulate LLM outage'),
+          h('div', { className: 'inline-flex items-center gap-1.5 rounded-md border border-line bg-surf px-3 py-1.5 font-medium' }, h('span', { className: 'h-2 w-2 rounded-full bg-sage' }), 'Live Realtime'),
           h(Btn, { onClick: onRefresh, disabled: d.busy, 'aria-label': 'Refresh now' }, d.busy ? 'Refreshing…' : 'Refresh'),
           h(Btn, { kind: 'solid', onClick: onExport, disabled: exporting }, exporting ? 'Exporting…' : 'Export results')))
+
     }
     const HC = { healthy: ['bg-sage', 'Healthy'], degraded: ['bg-ochre', 'Degraded'], unavailable: ['bg-terra', 'Unavailable'], unknown: ['bg-mute', 'Unknown'] };
     function Health({ d }) {
@@ -298,7 +296,7 @@
     }
     /* ===== App ===== */
     function App() {
-      const [mode, setMode] = useState('demo'), [, bump] = useState(0), api = mode === 'demo' ? demoApi : liveApi;
+      const [mode, setMode] = useState('live'), [, bump] = useState(0), api = liveApi;
       const d = useDash(api), [fl, setFl] = useState({ q: '', status: '', cat: '', urg: '' }), [selId, setSel] = useState(null), [selData, setSelData] = useState(null), [pending, setPend] = useState({}), [note, setNote] = useState(null), [exporting, setExp] = useState(false), [tick, setTick] = useState(0), [llmDown, setLlm] = useState(false);
       useEffect(() => { setSel(null); setSelData(null); D.llmDown = false; setLlm(false) }, [mode]);
       useEffect(() => { if (selId) setTick(t => t + 1) }, [d.lastOk]);
@@ -314,8 +312,8 @@
       const sel = selData && selData.message_id === selId ? selData : (d.msgs || []).find(m => m.message_id === selId) || null;
       const conn = !d.sawData ? 'Connecting' : d.fails ? 'Stale' : 'Connected';
       return h('div', { className: 'mx-auto max-w-[88rem] space-y-5 px-4 py-6 sm:px-8' },
-        mode === 'demo' && h('div', { className: 'rounded-md border border-ochre bg-ochrebg px-3 py-2 text-xs' }, 'Demo mode: sample data from a simulated backend, not your real tickets. Switch to Live to call the API at ', h('span', { className: 'font-mono' }, BASE), '.'),
         h(Header, { d, mode, setMode, llmDown, setLlmDown: setDown, onExport, exporting, onRefresh: d.load }),
+
         h(Health, { d }), h(Metrics, { d }), h(Pipeline, { sel, failed: d.stats && d.stats.failed }),
         h(Explorer, { msgs: d.msgs, selId, onSelect: setSel, fl, setFl, loaded: d.sawData || d.fails > 0 }),
         h(Failed, { msgs: d.msgs, pending, onRetry, onRetryAll, onSelect: setSel }), h(Submit, { api, onDone: d.load }),
