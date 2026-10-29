@@ -30,23 +30,27 @@ flowchart TD
 
 ## 2. Prerequisites
 
-- **macOS / Linux**
-- **Python 3.12**
-- **`uv` package manager** (installed via `curl -LsSf https://astral.sh/uv/install.sh` or `brew install uv`)
+- **macOS / Linux / Windows**
+- **Python 3.12+**
+- (Optional) **`uv` package manager** or standard **`pip`**, or **Docker & Docker Compose**
 
 ---
 
 ## 3. Setup and Installation
 
-All dependencies and environment configurations are managed via `uv` in the `backend/` directory:
-
+### Option 1: Using `uv` (Recommended)
 ```bash
 cd backend
-
-# Create virtual environment and sync dependencies
 uv sync
+cp .env.example .env
+```
 
-# Configure environment variables
+### Option 2: Using standard `pip`
+```bash
+cd backend
+python3 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+pip install -r requirements.txt
 cp .env.example .env
 ```
 
@@ -163,10 +167,13 @@ curl -X POST http://127.0.0.1:8000/messages \
 }
 ```
 
-### Send the practice dataset batch:
-You can stream the 25 practice messages using the included sender script:
+### Send message batches using the sender script:
+You can stream messages to the system using `scripts/send_messages.py`:
 ```bash
-cd backend
+# From backend/ directory:
+python scripts/send_messages.py --url http://127.0.0.1:8000 --file ../for_candidates/practice_messages.json
+
+# Or using uv:
 uv run python scripts/send_messages.py
 ```
 This automatically tests acceptance, rejection of empty messages (`T-1012`), and duplicate delivery handling (`T-1007`).
@@ -199,16 +206,15 @@ The API provides eight core endpoints:
 ```text
 Message Ingested
        ↓
-[ Stage A: Extraction ]
-  - LLM extracts order_id (ORD-xxxxx) & product (mapped to official 8 items).
-  - Validates format in Python.
-  - Persists durable checkpoint in `processing_checkpoints`.
-       ↓
-[ Stage B: Classification ]
-  - Passes original message + extracted context to LLM.
-  - Validates category (Refund, Billing, Technical issue, Account access, Other).
+[ Stage 1: Classification ]
+  - LLM classifies category (Refund, Billing, Technical issue, Account access, Other).
   - Validates urgency (High, Medium, Low) based strictly on business severity rules.
   - Generates concise requested_action.
+  - Persists durable checkpoint in `processing_checkpoints`.
+       ↓
+[ Stage 2: Conditional Extraction ]
+  - If category == 'Other': Extraction is safely skipped (order_id=null, product=null), saving 50% LLM calls.
+  - If category != 'Other': LLM extracts order_id (ORD-xxxxx) & product (mapped to official catalogue).
   - Persists durable checkpoint in `processing_checkpoints`.
        ↓
 [ Atomic Finalization ]
@@ -216,9 +222,10 @@ Message Ingested
 ```
 
 ### Resume & Recovery Guarantees
-- If the worker crashes before Stage A finishes: Call 1 is executed upon restart.
-- If the worker crashes after Stage A finishes: Call 1 is **skipped**, and Call 2 executes directly.
-- If the worker crashes after Stage B finishes: **Both Call 1 and Call 2 are skipped**, and finalization completes immediately.
+- If the worker crashes before Stage 1 finishes: Stage 1 (Classification) executes upon restart.
+- If the worker crashes after Stage 1 finishes: Stage 1 is **skipped**, and Stage 2 (Extraction) executes directly.
+- If category is `'Other'`: Stage 2 is **automatically bypassed**, eliminating redundant LLM invocation.
+- If the worker crashes after Stage 2 finishes: **Both Stage 1 and Stage 2 are skipped**, and finalization completes immediately.
 - Completed checkpoints are never overwritten with invalid results.
 
 ---
