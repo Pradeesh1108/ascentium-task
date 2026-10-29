@@ -59,7 +59,7 @@ Edit `backend/.env` as needed:
 | Variable | Description | Default |
 |---|---|---|
 | `DATABASE_PATH` | Path to the SQLite database file | `data/tickets.db` |
-| `LLM_BASE_URL` | Base URL of OpenAI-compatible LLM endpoint | `https://6efd-219-65-111-226.ngrok-free.app` |
+| `LLM_BASE_URL` | Base URL of OpenAI-compatible LLM endpoint | `https://your-llm-host.ngrok-free.app/v1` |
 | `LLM_API_KEY` | API Key for LLM service (optional) | *(empty)* |
 | `LLM_MODEL` | Model identifier | `qwen3-4b` |
 | `LLM_TIMEOUT_SECONDS` | Request timeout for LLM calls | `30` |
@@ -96,7 +96,19 @@ Press `Ctrl+C` to cleanly shut down all services.
 
 ---
 
-### Option B: Manual Process Execution
+### Option B: Docker Compose (Containerized Execution)
+To run the entire system in an isolated Docker container with persistent storage volume:
+
+```bash
+docker compose up --build
+```
+- Dashboard UI: [http://localhost:8000/](http://localhost:8000/)
+- Swagger Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+- Real-time WebSocket: `ws://localhost:8000/ws`
+
+---
+
+### Option C: Manual Process Execution
 If you prefer running services in separate terminal windows:
 
 #### Step 1: Run the FastAPI Server

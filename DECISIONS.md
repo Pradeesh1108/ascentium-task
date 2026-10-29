@@ -173,6 +173,17 @@ This document details key architectural decisions, trade-offs, and operational g
     2. **Independent Stage Workers / Asynchronous Hand-off**: Classification and extraction can be deployed as discrete worker pools communicating via task queues or checkpoint state transitions. If the classification service experiences degraded latency, extraction workers continue processing previously classified tickets, and ingestion never blocks.
     3. **Fault-Specific Healing**: Because errors are logged per stage in `processing_checkpoints`, operators can target retries to specifically failed stages without touching successful checkpoints.
 
+---
+
+## 17. SQLAlchemy ORM Integration & Docker Compose Containerization
+
+- **Decision**: Introduce standard SQLAlchemy declarative models (`MessageModel`, `ProcessingCheckpointModel`, `ProcessingEventModel`), engine pooling with PRAGMA connection listeners, and containerize the complete application with Docker and Docker Compose.
+- **Rationale**:
+  - Provides type-safe ORM access and database portability (SQLite in development, easily swapped to PostgreSQL/MySQL in production via `DATABASE_URL`).
+  - Maintains zero-disruption compatibility: existing raw query paths and test fixtures continue running without regression.
+  - **Docker Compose**: Evaluators and team members can boot the entire stack (FastAPI server, UI, WebSocket broadcaster, background worker process, and persistent volume storage) via a single command: `docker compose up --build`.
+
+
 
 
 
