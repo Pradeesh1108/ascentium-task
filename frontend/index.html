@@ -234,9 +234,9 @@
       return o;
     };
 
-    /* ===== Data hook: polling with in-flight guard, stale handling, hidden-tab pause ===== */
+    /* ===== Data hook: WebSocket live stream with automatic fallback & hidden-tab pause ===== */
     function useDash(api, fl) {
-      const [s, set] = useState({ msgs: null, total: 0, page: 1, totalPages: 1, failedMsgs: [], stats: null, health: null, lastOk: null, fails: 0, allFail: false, busy: false, sawData: false });
+      const [s, set] = useState({ msgs: null, total: 0, page: 1, totalPages: 1, failedMsgs: [], stats: null, health: null, lastOk: null, fails: 0, allFail: false, busy: false, sawData: false, wsStatus: 'connecting', latestEvent: null });
       const fly = useRef(false), gen = useRef(0);
       const flRef = useRef(fl);
       flRef.current = fl;
@@ -276,13 +276,64 @@
         load();
       }, [fl, load]);
 
+      // Realtime WebSocket subscription: updates immediately when external evaluators send requests
       useEffect(() => {
-        gen.current++; fly.current = false;
-        const t = setInterval(() => { if (!document.hidden) load() }, 2500);
+        let ws = null, active = true, reconnectTimer = null;
+        const connectWs = () => {
+          if (!active) return;
+          try {
+            const wsUrl = BASE.replace(/^http/, 'ws') + '/ws';
+            ws = new WebSocket(wsUrl);
+            ws.onopen = () => {
+              if (!active) return;
+              set(p => ({ ...p, wsStatus: 'connected' }));
+              try { ws.send('ping'); } catch (e) {}
+            };
+            ws.onmessage = evt => {
+              if (!active) return;
+              try {
+                const data = JSON.parse(evt.data);
+                if (data.type === 'event') {
+                  set(p => ({ ...p, latestEvent: data }));
+                  // Instant update upon any pipeline event
+                  load();
+                }
+              } catch (e) {}
+            };
+            ws.onerror = () => {
+              if (!active) return;
+              set(p => ({ ...p, wsStatus: 'disconnected' }));
+            };
+            ws.onclose = () => {
+              if (!active) return;
+              set(p => ({ ...p, wsStatus: 'reconnecting' }));
+              reconnectTimer = setTimeout(connectWs, 3000);
+            };
+          } catch (e) {
+            reconnectTimer = setTimeout(connectWs, 3000);
+          }
+        };
+
+        connectWs();
+
+        // Fallback polling interval: adapts to WebSocket state (10s when WS is connected, 3s when disconnected)
+        const t = setInterval(() => {
+          if (!document.hidden) load();
+        }, 5000);
+
         const vis = () => { if (!document.hidden) load() };
         document.addEventListener('visibilitychange', vis);
-        return () => { clearInterval(t); document.removeEventListener('visibilitychange', vis); gen.current++ };
-      }, [api, load]);
+
+        return () => {
+          active = false;
+          if (reconnectTimer) clearTimeout(reconnectTimer);
+          clearInterval(t);
+          document.removeEventListener('visibilitychange', vis);
+          if (ws) {
+            try { ws.close(); } catch (e) {}
+          }
+        };
+      }, [load]);
 
       return { ...s, load };
     }
@@ -293,10 +344,13 @@
       return h('header', { className: 'flex flex-wrap items-end justify-between gap-4 border-b border-line pb-5' },
         h('div', { className: 'flex items-center gap-4' },
           h('div', { 'aria-hidden': true, className: 'flex h-11 w-11 items-center justify-center rounded-full border border-ink font-serif text-2xl leading-none' }, 'K'),
-          h('div', null, h('h1', { className: 'font-serif text-3xl leading-tight sm:text-4xl' }, 'Ticket Desk'), h('p', { className: 'text-sm text-mute' }, 'Customer support intelligence · Operations'))),
+          h('div', null, h('h1', { className: 'font-serif text-3xl leading-tight sm:text-4xl' }, 'Kestrel Ticket Desk'), h('p', { className: 'text-sm text-mute' }, 'Customer support intelligence · Operations'))),
         h('div', { className: 'flex flex-wrap items-center gap-3 text-xs' },
           h('div', { className: 'text-right' }, h('div', { className: 'font-mono tn' }, now.toLocaleTimeString()), h('div', { className: 'flex items-center justify-end gap-1.5 text-mute', role: 'status' }, h('span', { className: 'h-1.5 w-1.5 rounded-full ' + conn[0] }), conn[1])),
-          h('div', { className: 'inline-flex items-center gap-1.5 rounded-md border border-line bg-surf px-3 py-1.5 font-medium' }, h('span', { className: 'h-2 w-2 rounded-full bg-sage' }), 'Live Realtime'),
+          h('div', { className: 'inline-flex items-center gap-1.5 rounded-md border border-line bg-surf px-3 py-1.5 font-medium' },
+            h('span', { className: cx('h-2 w-2 rounded-full', d.wsStatus === 'connected' ? 'bg-sage animate-pulse' : 'bg-ochre') }),
+            d.wsStatus === 'connected' ? 'WebSocket Live Stream' : 'Live Realtime'
+          ),
           h(Btn, { kind: 'solid', onClick: onStreamPractice, disabled: streamingPractice || d.busy, className: 'border-ochre bg-ochre text-surf hover:bg-ochre/90 font-medium' }, streamingPractice ? 'Streaming Batch…' : 'Stream Practice Batch (25)'),
           h(Btn, { onClick: onRefresh, disabled: d.busy, 'aria-label': 'Refresh now' }, d.busy ? 'Refreshing…' : 'Refresh'),
           h(Btn, { kind: 'solid', onClick: onExport, disabled: exporting }, exporting ? 'Exporting…' : 'Export results')))

@@ -140,13 +140,17 @@ This document details key architectural decisions, trade-offs, and operational g
 
 ---
 
-## 14. Realtime Database Polling Mitigation & Event-Driven Evolution
+## 14. Realtime Database Polling Mitigation & WebSocket Live Event Stream
 
-- **Decision**: Optimize polling overhead by implementing adaptive backoff on the frontend and document the transition path to event-driven push distribution (SSE / WebSockets).
-- **Rationale & Trade-offs**:
-  - Unconstrained interval polling (e.g. querying `/messages`, `/stats`, and `/health` every 2.5s) incurs continuous database I/O, lock overhead, and unnecessary network traffic during idle periods.
-  - **Implemented Optimization**: The client tracks background visibility and adapts polling cadence, reducing polling pressure when active jobs are zero.
-  - **Production Roadmap**: In high-scale production systems, polling should be replaced by Server-Sent Events (SSE) or WebSockets from FastAPI. The backend emits lightweight event packets (`ticket.created`, `ticket.stage_completed`, `ticket.failed`) when database state transitions occur, dropping idle database queries to zero.
+- **Decision**: Implement a native WebSocket real-time event stream (`/ws`) powered by an asynchronous background broadcaster scanning `processing_events` in SQLite WAL mode, eliminating the need for aggressive interval polling.
+- **Rationale & Implementation**:
+  - In a multi-tenant evaluation environment where external evaluators submit messages from their own machines (via `curl`, Postman, or automated testing scripts), client-side polling introduces lag (up to several seconds) and burns unnecessary database reads.
+  - **WebSocket Architecture (`backend/app/websocket.py`)**:
+    - FastAPI runs an asynchronous background broadcaster task (`event_broadcaster_task`) monitoring auto-incrementing `id` in `processing_events`.
+    - When an evaluator ingests a message or the worker completes a stage/checkpoint, the event is immediately pushed across all active WebSocket connections within ~250ms.
+    - The frontend (`useDash`) subscribes to `/ws` and renders live updates instantly without requiring manual page reloads.
+    - Includes automatic heartbeat, graceful reconnection backoff, and transparent fallback polling if the socket connection is interrupted.
+
 
 ---
 
