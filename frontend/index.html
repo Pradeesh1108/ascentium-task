@@ -93,8 +93,9 @@
     const { useState, useEffect, useRef, useCallback, useMemo } = React, h = React.createElement;
     const cx = (...a) => a.filter(Boolean).join(' ');
     /* ===== API client (live mode). BASE = import.meta.env.VITE_API_URL in the Vite port. Response shapes are ASSUMED: adjust the normalize* fns below. ===== */
-    const BASE = 'http://localhost:8000';
+    const BASE = (typeof window !== 'undefined' && window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file')) ? window.location.origin : 'http://localhost:8000';
     const J = async (p, o) => { const r = await fetch(BASE + p, o); let b = null; try { b = await r.json() } catch (e) { } if (!r.ok) throw new Error((b && (b.detail || b.message)) || 'HTTP ' + r.status); return b };
+
     const E = encodeURIComponent;
     const liveApi = {
       health: () => J('/health'), stats: () => J('/stats'), list: () => J('/messages'), get: i => J('/messages/' + E(i)), retry: i => J('/messages/' + E(i) + '/retry', { method: 'POST' }), retryAll: () => J('/messages/retry-failed', { method: 'POST' }),

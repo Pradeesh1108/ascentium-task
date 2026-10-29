@@ -73,22 +73,49 @@ Edit `backend/.env` as needed:
 
 ## 5. How to Run
 
-### Step 1: Run the FastAPI Server
+### Option A: One-Command Cross-Platform Startup (Recommended)
+You can launch both the FastAPI backend (with the integrated Kestrel Ticket Desk UI) and the background worker simultaneously using the cross-platform runner:
+
+- **macOS / Linux**:
+  ```bash
+  python3 run.py
+  # or: ./run.sh
+  ```
+- **Windows**:
+  ```cmd
+  python run.py
+  # or double-click run.bat
+  ```
+
+Once running, access:
+- **Operations Screen (UI)**: [http://127.0.0.1:8000/](http://127.0.0.1:8000/)
+- **Interactive OpenAPI Docs**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+- **Health Check**: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+
+Press `Ctrl+C` to cleanly shut down all services.
+
+---
+
+### Option B: Manual Process Execution
+If you prefer running services in separate terminal windows:
+
+#### Step 1: Run the FastAPI Server
 In your first terminal:
 ```bash
 cd backend
 uv run uvicorn app.main:app --reload --port 8000
 ```
-- API Base URL: `http://127.0.0.1:8000`
+- API & UI: `http://127.0.0.1:8000`
 - Interactive OpenAPI Docs: `http://127.0.0.1:8000/docs`
 
-### Step 2: Run the Worker as a Separate Process
+#### Step 2: Run the Worker as a Separate Process
 In your second terminal:
 ```bash
 cd backend
 uv run python -m app.worker
 ```
 The worker runs independently, safely claims pending tickets, resumes intermediate checkpoints, and gracefully shuts down on `Ctrl+C` (`SIGINT` / `SIGTERM`).
+
 
 ---
 
