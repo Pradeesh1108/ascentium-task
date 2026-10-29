@@ -81,3 +81,35 @@ def check_database_health() -> bool:
         return True
     except sqlite3.Error:
         return False
+
+
+def record_event(
+    connection: sqlite3.Connection,
+    message_id: str | None,
+    event_type: str,
+    stage: str | None = None,
+    details: str | None = None,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO processing_events (message_id, event_type, stage, details)
+        VALUES (?, ?, ?, ?)
+        """,
+        (message_id, event_type, stage, details),
+    )
+
+
+def record_event(
+    connection: sqlite3.Connection,
+    message_id: str | None,
+    event_type: str,
+    stage: str | None = None,
+    details: str | None = None,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO processing_events (message_id, event_type, stage, details)
+        VALUES (?, ?, ?, ?)
+        """,
+        (message_id, event_type, stage, details),
+    )

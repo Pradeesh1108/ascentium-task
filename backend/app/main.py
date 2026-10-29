@@ -6,6 +6,7 @@ from app.database import (
     initialize_database,
     check_database_health,
 )
+from app.routes.messages import router as messages_router
 
 
 @asynccontextmanager
@@ -20,6 +21,9 @@ app = FastAPI(
     version="1.0.0",
     lifespan=lifespan,
 )
+
+app.include_router(messages_router)
+
 
 
 @app.get("/")
