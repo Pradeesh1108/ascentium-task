@@ -121,3 +121,28 @@ def test_database_error_does_not_claim_success(client):
         assert res.status_code == 503
         assert "Database unavailable" in res.json()["detail"]
 
+
+def test_list_messages_filtered_and_paginated(client):
+    # Ingest 25 valid messages + 1 rejected
+    for i in range(1, 26):
+        client.post("/messages", json={"message_id": f"T-VALID-{i:03d}", "text": f"Valid ticket {i}"})
+    client.post("/messages", json={"message_id": "T-REJ-001", "text": "   "})
+
+    # Query with default limit=20
+    res_page1 = client.get("/messages?limit=20&page=1")
+    assert res_page1.status_code == 200
+    data_page1 = res_page1.json()
+    assert len(data_page1["items"]) == 20
+    assert data_page1["total"] == 26
+    assert data_page1["total_pages"] == 2
+
+    # Query status=rejected
+    res_rejected = client.get("/messages?status=rejected&limit=20")
+    assert res_rejected.status_code == 200
+    data_rejected = res_rejected.json()
+    assert data_rejected["total"] == 1
+    assert len(data_rejected["items"]) == 1
+    assert data_rejected["items"][0]["message_id"] == "T-REJ-001"
+    assert data_rejected["items"][0]["status"] == "rejected"
+
+

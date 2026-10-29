@@ -78,6 +78,7 @@ This document details key architectural decisions, trade-offs, and operational g
   - After 3 consecutive processing failures, the message is marked `failed` with the exact error stored in `failure_reason`.
   - Manual retries (`POST /messages/{id}/retry` and `POST /messages/retry-failed`) reset the status to `pending` and clear failure metadata while **strictly preserving all valid extraction and classification checkpoints**.
 
+
 ---
 
 ## 8. REST API Contracts & Operational Transparency
@@ -107,5 +108,16 @@ This document details key architectural decisions, trade-offs, and operational g
 - **Rationale**:
   - Frequent polling by uptime monitors or frontend dashboards (such as the Kestrel Ticket Desk) would incur significant costs, consume API rate limits, and cause artificial failures during upstream rate-limiting.
   - Database health is verified via a lightweight connection test (`SELECT 1`), while LLM health reports configuration state and logs errors asynchronously from processing attempts.
+
+---
+
+## 11. Server-Side Filtered Pagination & Live UI Realtime Synchronization
+
+- **Decision**: Maintain a strict UI page size limit of 20 items (`limit=20`) and delegate all category, urgency, status (e.g. `rejected`, `failed`), and text search filtering directly to SQLite via parameterized `WHERE` clauses on `GET /messages`.
+- **Rationale**:
+  - Client-side filtering over an in-memory batch breaks down when the total dataset exceeds the page limit (e.g. ingesting 25 practice messages pushes older records such as validation-rejected messages like `T-1012` beyond the first 20 records).
+  - Server-side filtering guarantees that selecting "Rejected" or any other filter immediately queries the entire database table and returns matching tickets within the 20-item viewport alongside Prev/Next pagination controls.
+  - The "Failed messages" operator card independently monitors `GET /messages?status=failed` to ensure actionable failures are visible regardless of table filtering.
+
 
 

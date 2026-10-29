@@ -57,6 +57,9 @@ def list_messages(
     page: int = Query(1, ge=1, description="Page number"),
     limit: int = Query(20, ge=1, le=100, description="Items per page"),
     status: Optional[str] = Query(None, description="Filter by status (pending, processing, completed, failed, rejected)"),
+    category: Optional[str] = Query(None, description="Filter by category"),
+    urgency: Optional[str] = Query(None, description="Filter by urgency"),
+    q: Optional[str] = Query(None, description="Search ID or text"),
 ):
     offset = (page - 1) * limit
     where_clauses = []
@@ -65,8 +68,19 @@ def list_messages(
     if status:
         where_clauses.append("status = ?")
         params.append(status)
+    if category:
+        where_clauses.append("category = ?")
+        params.append(category)
+    if urgency:
+        where_clauses.append("urgency = ?")
+        params.append(urgency)
+    if q and q.strip():
+        where_clauses.append("(message_id LIKE ? OR text LIKE ?)")
+        search_pattern = f"%{q.strip()}%"
+        params.extend([search_pattern, search_pattern])
 
     where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
 
     with get_connection() as conn:
         count_cursor = conn.execute(f"SELECT COUNT(*) FROM messages {where_sql}", params)
